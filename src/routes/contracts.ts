@@ -1,12 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import { v4 as uuid } from 'uuid';
 import { getDb } from '../db';
 import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
 
 export async function contractRoutes(app: FastifyInstance) {
-  // Create a job contract (client requests work from provider via skill)
   app.post('/contracts', async (request, reply) => {
     const { clientId, providerId, skillId, input } = request.body as any;
 
@@ -16,177 +14,131 @@ export async function contractRoutes(app: FastifyInstance) {
 
     const db = getDb();
 
-    // Verify all parties exist
-    const client = db.prepare('SELECT id FROM agents WHERE id = ?').get(clientId);
-    const provider = db.prepare('SELECT id FROM agents WHERE id = ?').get(providerId);
-    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as any;
+    const [{ data: client }, { data: provider }, { data: skill }] = await Promise.all([
+      db.from('agents').select('id').eq('id', clientId).single(),
+      db.from('agents').select('id').eq('id', providerId).single(),
+      db.from('skills').select('*').eq('id', skillId).single(),
+    ]);
 
     if (!client) return reply.status(404).send({ error: 'Client agent not found' });
     if (!provider) return reply.status(404).send({ error: 'Provider agent not found' });
     if (!skill) return reply.status(404).send({ error: 'Skill not found' });
 
-    // Validate input if provided
     if (input) {
-      const inputSchema = JSON.parse(skill.inputSchema);
-      const validation = validateInput(inputSchema, input);
+      const validation = validateInput(skill.input_schema, input);
       if (!validation.valid) {
-        return reply.status(400).send({
-          error: 'Input validation failed',
-          details: validation.errors,
-        });
+        return reply.status(400).send({ error: 'Input validation failed', details: validation.errors });
       }
     }
 
-    const id = uuid();
+    const { data, error } = await db.from('contracts').insert({
+      client_id: clientId, provider_id: providerId,
+      skill_id: skillId, input: input || {}, price: skill.price,
+      status: 'created',
+    }).select().single();
 
-    db.prepare(`
-      INSERT INTO contracts (id, clientId, providerId, skillId, input, price, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'created')
-    `).run(id, clientId, providerId, skillId, JSON.stringify(input || {}), skill.price);
-
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id) as any;
-
-    return reply.status(201).send({
-      ...contract,
-      input: JSON.parse(contract.input),
-    });
+    if (error) return reply.status(500).send({ error: error.message });
+    return reply.status(201).send(formatContract(data));
   });
 
-  // Deliver work on a contract — executes skill, validates, settles
   app.post('/contracts/:id/deliver', async (request, reply) => {
     const { id } = request.params as any;
     const db = getDb();
 
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id) as any;
+    const { data: contract } = await db.from('contracts').select('*').eq('id', id).single();
     if (!contract) return reply.status(404).send({ error: 'Contract not found' });
     if (contract.status !== 'created' && contract.status !== 'escrowed') {
       return reply.status(400).send({ error: `Contract is in '${contract.status}' status, cannot deliver` });
     }
 
-    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(contract.skillId) as any;
+    const { data: skill } = await db.from('skills').select('*').eq('id', contract.skill_id).single();
     if (!skill) return reply.status(404).send({ error: 'Skill not found' });
 
-    const input = JSON.parse(contract.input);
-    const outputSchema = JSON.parse(skill.outputSchema);
-
-    // Execute skill in sandbox
-    const result = await executeSandboxed(skill.code, input, skill.timeoutMs, skill.maxMemoryMb);
+    const result = await executeSandboxed(skill.code, contract.input, skill.timeout_ms, skill.max_memory_mb);
 
     if (!result.success) {
-      db.prepare(`
-        UPDATE contracts SET status = 'disputed', updatedAt = datetime('now')
-        WHERE id = ?
-      `).run(id);
-
+      await db.from('contracts').update({ status: 'disputed', updated_at: new Date().toISOString() }).eq('id', id);
       return reply.status(500).send({
-        contractId: id,
-        status: 'disputed',
-        phase: 'execution',
-        error: result.error,
+        contractId: id, status: 'disputed', phase: 'execution', error: result.error,
       });
     }
 
-    // Validate output
-    const validation = validateOutput(outputSchema, result.output);
+    const validation = validateOutput(skill.output_schema, result.output);
 
-    db.prepare(`
-      UPDATE contracts SET output = ?, validationResult = ?, status = ?, updatedAt = datetime('now')
-      WHERE id = ?
-    `).run(
-      JSON.stringify(result.output),
-      JSON.stringify(validation),
-      validation.valid ? 'validated' : 'disputed',
-      id,
-    );
+    await db.from('contracts').update({
+      output: result.output, validation_result: validation,
+      status: validation.valid ? 'validated' : 'disputed',
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
 
     if (!validation.valid) {
       return reply.status(400).send({
-        contractId: id,
-        status: 'disputed',
-        phase: 'output_validation',
-        errors: validation.errors,
-        output: result.output,
+        contractId: id, status: 'disputed', phase: 'output_validation',
+        errors: validation.errors, output: result.output,
       });
     }
 
-    // Settle payment
     let txSignature: string | null = null;
     if (contract.price > 0) {
-      const provider = db.prepare('SELECT walletAddress FROM agents WHERE id = ?').get(contract.providerId) as any;
-      if (provider?.walletAddress) {
-        txSignature = await settlePayment(provider.walletAddress, contract.price);
+      const { data: provider } = await db.from('agents')
+        .select('wallet_address').eq('id', contract.provider_id).single();
+      if (provider?.wallet_address) {
+        txSignature = await settlePayment(provider.wallet_address, contract.price);
       }
     }
 
-    db.prepare(`
-      UPDATE contracts SET status = 'settled', settleTx = ?, updatedAt = datetime('now')
-      WHERE id = ?
-    `).run(txSignature, id);
+    await db.from('contracts').update({
+      status: 'settled', settle_tx: txSignature, updated_at: new Date().toISOString(),
+    }).eq('id', id);
 
     // Update reputation
-    db.prepare('UPDATE agents SET reputation = reputation + 1 WHERE id = ?').run(contract.providerId);
-    db.prepare('UPDATE skills SET executionCount = executionCount + 1, updatedAt = datetime(\'now\') WHERE id = ?').run(contract.skillId);
+    const { data: providerAgent } = await db.from('agents')
+      .select('reputation').eq('id', contract.provider_id).single();
+    await db.from('agents').update({
+      reputation: (providerAgent?.reputation || 0) + 1,
+    }).eq('id', contract.provider_id);
+
+    await db.from('skills').update({
+      execution_count: skill.execution_count + 1, updated_at: new Date().toISOString(),
+    }).eq('id', contract.skill_id);
 
     return {
-      contractId: id,
-      status: 'settled',
-      output: result.output,
-      validated: true,
-      executionTimeMs: result.executionTimeMs,
-      payment: {
-        amount: contract.price,
-        txSignature,
-        settled: !!txSignature,
-      },
+      contractId: id, status: 'settled', output: result.output,
+      validated: true, executionTimeMs: result.executionTimeMs,
+      payment: { amount: contract.price, txSignature, settled: !!txSignature },
     };
   });
 
-  // Get contract status
   app.get('/contracts/:id', async (request, reply) => {
     const { id } = request.params as any;
     const db = getDb();
 
-    const contract = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id) as any;
-    if (!contract) return reply.status(404).send({ error: 'Contract not found' });
-
-    return {
-      ...contract,
-      input: JSON.parse(contract.input),
-      output: contract.output ? JSON.parse(contract.output) : null,
-      validationResult: contract.validationResult ? JSON.parse(contract.validationResult) : null,
-    };
+    const { data } = await db.from('contracts').select('*').eq('id', id).single();
+    if (!data) return reply.status(404).send({ error: 'Contract not found' });
+    return formatContract(data);
   });
 
-  // List contracts
   app.get('/contracts', async (request) => {
     const db = getDb();
     const { agentId, status, limit = '20', offset = '0' } = request.query as any;
 
-    let query = 'SELECT * FROM contracts WHERE 1=1';
-    const params: any[] = [];
+    let query = db.from('contracts').select('*').order('created_at', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
 
-    if (agentId) {
-      query += ' AND (clientId = ? OR providerId = ?)';
-      params.push(agentId, agentId);
-    }
-    if (status) {
-      query += ' AND status = ?';
-      params.push(status);
-    }
+    if (agentId) query = query.or(`client_id.eq.${agentId},provider_id.eq.${agentId}`);
+    if (status) query = query.eq('status', status);
 
-    query += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
-    params.push(Number(limit), Number(offset));
-
-    const contracts = db.prepare(query).all(...params) as any[];
-
-    return {
-      contracts: contracts.map(c => ({
-        ...c,
-        input: JSON.parse(c.input),
-        output: c.output ? JSON.parse(c.output) : null,
-        validationResult: c.validationResult ? JSON.parse(c.validationResult) : null,
-      })),
-      count: contracts.length,
-    };
+    const { data } = await query;
+    return { contracts: (data || []).map(formatContract), count: (data || []).length };
   });
+}
+
+function formatContract(c: any) {
+  return {
+    id: c.id, clientId: c.client_id, providerId: c.provider_id,
+    skillId: c.skill_id, input: c.input, output: c.output,
+    price: c.price, status: c.status, escrowTx: c.escrow_tx,
+    settleTx: c.settle_tx, validationResult: c.validation_result,
+    createdAt: c.created_at, updatedAt: c.updated_at,
+  };
 }

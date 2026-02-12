@@ -4,9 +4,12 @@ import { getDb } from '../db';
 export async function healthRoutes(app: FastifyInstance) {
   app.get('/health', async () => {
     const db = getDb();
-    const agentCount = db.prepare('SELECT COUNT(*) as count FROM agents').get() as any;
-    const skillCount = db.prepare('SELECT COUNT(*) as count FROM skills').get() as any;
-    const execCount = db.prepare('SELECT COUNT(*) as count FROM executions').get() as any;
+
+    const [agents, skills, executions] = await Promise.all([
+      db.from('agents').select('id', { count: 'exact', head: true }),
+      db.from('skills').select('id', { count: 'exact', head: true }),
+      db.from('executions').select('id', { count: 'exact', head: true }),
+    ]);
 
     return {
       status: 'ok',
@@ -14,9 +17,9 @@ export async function healthRoutes(app: FastifyInstance) {
       version: '0.1.0',
       tagline: 'Trust Infrastructure for the Agent Economy',
       stats: {
-        agents: agentCount.count,
-        skills: skillCount.count,
-        executions: execCount.count,
+        agents: agents.count || 0,
+        skills: skills.count || 0,
+        executions: executions.count || 0,
       },
       features: [
         'verified-skill-registry',

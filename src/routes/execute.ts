@@ -1,17 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import { v4 as uuid } from 'uuid';
 import { getDb } from '../db';
 import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
 
 export async function executeRoutes(app: FastifyInstance) {
-  // Execute a skill — the core flow:
-  // 1. Validate input against schema
-  // 2. Run code in sandbox
-  // 3. Validate output against schema
-  // 4. Settle payment via AgentWallet
-  // 5. Update reputation
   app.post('/execute/:skillId', async (request, reply) => {
     const { skillId } = request.params as any;
     const { callerId, input } = request.body as any;
@@ -22,106 +15,91 @@ export async function executeRoutes(app: FastifyInstance) {
 
     const db = getDb();
 
-    // Load skill
-    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as any;
-    if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
-    }
+    const { data: skill } = await db.from('skills').select('*').eq('id', skillId).single();
+    if (!skill) return reply.status(404).send({ error: 'Skill not found' });
 
-    // Verify caller exists
-    const caller = db.prepare('SELECT * FROM agents WHERE id = ?').get(callerId) as any;
-    if (!caller) {
-      return reply.status(404).send({ error: 'Caller agent not found' });
-    }
-
-    const executionId = uuid();
-    const inputSchema = JSON.parse(skill.inputSchema);
-    const outputSchema = JSON.parse(skill.outputSchema);
+    const { data: caller } = await db.from('agents').select('*').eq('id', callerId).single();
+    if (!caller) return reply.status(404).send({ error: 'Caller agent not found' });
 
     // Create execution record
-    db.prepare(`
-      INSERT INTO executions (id, skillId, callerId, input, status)
-      VALUES (?, ?, ?, ?, 'running')
-    `).run(executionId, skillId, callerId, JSON.stringify(input || {}));
+    const { data: execution } = await db.from('executions').insert({
+      skill_id: skillId, caller_id: callerId,
+      input: input || {}, status: 'running',
+    }).select().single();
+
+    const executionId = execution!.id;
 
     // Step 1: Validate input
-    const inputValidation = validateInput(inputSchema, input || {});
+    const inputValidation = validateInput(skill.input_schema, input || {});
     if (!inputValidation.valid) {
-      db.prepare(`
-        UPDATE executions SET status = 'failed', error = ?, completedAt = datetime('now')
-        WHERE id = ?
-      `).run(`Input validation failed: ${inputValidation.errors?.join(', ')}`, executionId);
+      await db.from('executions').update({
+        status: 'failed',
+        error: `Input validation failed: ${inputValidation.errors?.join(', ')}`,
+        completed_at: new Date().toISOString(),
+      }).eq('id', executionId);
 
       return reply.status(400).send({
-        executionId,
-        status: 'failed',
-        phase: 'input_validation',
+        executionId, status: 'failed', phase: 'input_validation',
         errors: inputValidation.errors,
       });
     }
 
     // Step 2: Execute in sandbox
     const result = await executeSandboxed(
-      skill.code,
-      input || {},
-      skill.timeoutMs,
-      skill.maxMemoryMb,
+      skill.code, input || {}, skill.timeout_ms, skill.max_memory_mb,
     );
 
     if (!result.success) {
       const status = result.error?.includes('timed out') ? 'timeout' : 'failed';
-      db.prepare(`
-        UPDATE executions SET status = ?, error = ?, executionTimeMs = ?, completedAt = datetime('now')
-        WHERE id = ?
-      `).run(status, result.error, result.executionTimeMs, executionId);
+      await db.from('executions').update({
+        status, error: result.error,
+        execution_time_ms: result.executionTimeMs,
+        completed_at: new Date().toISOString(),
+      }).eq('id', executionId);
 
       return reply.status(500).send({
-        executionId,
-        status,
-        phase: 'execution',
-        error: result.error,
-        executionTimeMs: result.executionTimeMs,
+        executionId, status, phase: 'execution',
+        error: result.error, executionTimeMs: result.executionTimeMs,
       });
     }
 
     // Step 3: Validate output
-    const outputValidation = validateOutput(outputSchema, result.output);
+    const outputValidation = validateOutput(skill.output_schema, result.output);
 
     // Step 4: Settle payment
     let txSignature: string | null = null;
     if (outputValidation.valid && skill.price > 0) {
-      const owner = db.prepare('SELECT walletAddress FROM agents WHERE id = ?').get(skill.ownerId) as any;
-      if (owner?.walletAddress) {
-        txSignature = await settlePayment(owner.walletAddress, skill.price);
+      const { data: owner } = await db.from('agents')
+        .select('wallet_address').eq('id', skill.owner_id).single();
+      if (owner?.wallet_address) {
+        txSignature = await settlePayment(owner.wallet_address, skill.price);
       }
     }
 
-    // Step 5: Update execution record
-    db.prepare(`
-      UPDATE executions
-      SET status = 'success', output = ?, validated = ?, executionTimeMs = ?,
-          txSignature = ?, completedAt = datetime('now')
-      WHERE id = ?
-    `).run(
-      JSON.stringify(result.output),
-      outputValidation.valid ? 1 : 0,
-      result.executionTimeMs,
-      txSignature,
-      executionId,
-    );
+    // Step 5: Update records
+    await db.from('executions').update({
+      status: 'success', output: result.output,
+      validated: outputValidation.valid,
+      execution_time_ms: result.executionTimeMs,
+      tx_signature: txSignature,
+      completed_at: new Date().toISOString(),
+    }).eq('id', executionId);
 
-    // Update skill execution count
-    db.prepare('UPDATE skills SET executionCount = executionCount + 1, updatedAt = datetime(\'now\') WHERE id = ?')
-      .run(skillId);
+    await db.from('skills').update({
+      execution_count: skill.execution_count + 1,
+      updated_at: new Date().toISOString(),
+    }).eq('id', skillId);
 
-    // Update caller's execution count
-    db.prepare('UPDATE agents SET skillsExecuted = skillsExecuted + 1 WHERE id = ?')
-      .run(callerId);
+    await db.from('agents').update({
+      skills_executed: caller.skills_executed + 1,
+    }).eq('id', callerId);
 
-    // Update owner reputation on successful validated execution
     if (outputValidation.valid) {
-      db.prepare('UPDATE agents SET reputation = reputation + 1 WHERE id = ?')
-        .run(skill.ownerId);
+      const { data: ownerAgent } = await db.from('agents')
+        .select('reputation').eq('id', skill.owner_id).single();
+      await db.from('agents').update({
+        reputation: (ownerAgent?.reputation || 0) + 1,
+      }).eq('id', skill.owner_id);
     }
 
     return {
@@ -129,40 +107,28 @@ export async function executeRoutes(app: FastifyInstance) {
       status: 'success',
       phases: {
         inputValidation: { valid: true },
-        execution: {
-          success: true,
-          executionTimeMs: result.executionTimeMs,
-        },
-        outputValidation: {
-          valid: outputValidation.valid,
-          errors: outputValidation.errors,
-        },
-        payment: {
-          amount: skill.price,
-          txSignature,
-          settled: !!txSignature,
-        },
+        execution: { success: true, executionTimeMs: result.executionTimeMs },
+        outputValidation: { valid: outputValidation.valid, errors: outputValidation.errors },
+        payment: { amount: skill.price, txSignature, settled: !!txSignature },
       },
       output: result.output,
       validated: outputValidation.valid,
     };
   });
 
-  // Get execution details
   app.get('/executions/:executionId', async (request, reply) => {
     const { executionId } = request.params as any;
     const db = getDb();
 
-    const exec = db.prepare('SELECT * FROM executions WHERE id = ?').get(executionId) as any;
-    if (!exec) {
-      return reply.status(404).send({ error: 'Execution not found' });
-    }
+    const { data, error } = await db.from('executions').select('*').eq('id', executionId).single();
+    if (error || !data) return reply.status(404).send({ error: 'Execution not found' });
 
     return {
-      ...exec,
-      input: JSON.parse(exec.input),
-      output: exec.output ? JSON.parse(exec.output) : null,
-      validated: !!exec.validated,
+      id: data.id, skillId: data.skill_id, callerId: data.caller_id,
+      input: data.input, output: data.output, status: data.status,
+      validated: data.validated, executionTimeMs: data.execution_time_ms,
+      error: data.error, txSignature: data.tx_signature,
+      createdAt: data.created_at, completedAt: data.completed_at,
     };
   });
 }

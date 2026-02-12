@@ -1,9 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { v4 as uuid } from 'uuid';
 import { getDb } from '../db';
 
 export async function skillRoutes(app: FastifyInstance) {
-  // Register a new skill
   app.post('/skills', async (request, reply) => {
     const {
       name, description, ownerId, version,
@@ -17,79 +15,59 @@ export async function skillRoutes(app: FastifyInstance) {
 
     const db = getDb();
 
-    // Verify owner exists
-    const owner = db.prepare('SELECT id FROM agents WHERE id = ?').get(ownerId);
-    if (!owner) {
-      return reply.status(404).send({ error: 'Owner agent not found' });
-    }
+    const { data: owner } = await db.from('agents').select('id').eq('id', ownerId).single();
+    if (!owner) return reply.status(404).send({ error: 'Owner agent not found' });
 
-    const id = uuid();
-
-    db.prepare(`
-      INSERT INTO skills (id, name, description, ownerId, version, inputSchema, outputSchema, code, price, timeoutMs, maxMemoryMb)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
+    const { data, error } = await db.from('skills').insert({
       name,
-      description || '',
-      ownerId,
-      version || '1.0.0',
-      JSON.stringify(inputSchema || {}),
-      JSON.stringify(outputSchema || {}),
+      description: description || '',
+      owner_id: ownerId,
+      version: version || '1.0.0',
+      input_schema: inputSchema || {},
+      output_schema: outputSchema || {},
       code,
-      price || 0,
-      timeoutMs || 5000,
-      maxMemoryMb || 64,
-    );
+      price: price || 0,
+      timeout_ms: timeoutMs || 5000,
+      max_memory_mb: maxMemoryMb || 64,
+    }).select().single();
 
-    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id) as any;
-    return reply.status(201).send({
-      ...skill,
-      inputSchema: JSON.parse(skill.inputSchema),
-      outputSchema: JSON.parse(skill.outputSchema),
-    });
+    if (error) return reply.status(500).send({ error: error.message });
+    return reply.status(201).send(formatSkill(data));
   });
 
-  // List skills
   app.get('/skills', async (request) => {
     const db = getDb();
     const { limit = '20', offset = '0', search } = request.query as any;
 
-    let skills;
+    let query = db.from('skills').select('*').order('execution_count', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+
     if (search) {
-      skills = db.prepare(
-        'SELECT * FROM skills WHERE name LIKE ? OR description LIKE ? ORDER BY executionCount DESC LIMIT ? OFFSET ?'
-      ).all(`%${search}%`, `%${search}%`, Number(limit), Number(offset));
-    } else {
-      skills = db.prepare(
-        'SELECT * FROM skills ORDER BY executionCount DESC LIMIT ? OFFSET ?'
-      ).all(Number(limit), Number(offset));
+      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    return {
-      skills: (skills as any[]).map(s => ({
-        ...s,
-        inputSchema: JSON.parse(s.inputSchema),
-        outputSchema: JSON.parse(s.outputSchema),
-      })),
-      count: skills.length,
-    };
+    const { data } = await query;
+    return { skills: (data || []).map(formatSkill), count: (data || []).length };
   });
 
-  // Get skill by ID
   app.get('/skills/:skillId', async (request, reply) => {
     const { skillId } = request.params as any;
     const db = getDb();
 
-    const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(skillId) as any;
-    if (!skill) {
-      return reply.status(404).send({ error: 'Skill not found' });
-    }
-
-    return {
-      ...skill,
-      inputSchema: JSON.parse(skill.inputSchema),
-      outputSchema: JSON.parse(skill.outputSchema),
-    };
+    const { data, error } = await db.from('skills').select('*').eq('id', skillId).single();
+    if (error || !data) return reply.status(404).send({ error: 'Skill not found' });
+    return formatSkill(data);
   });
+}
+
+function formatSkill(s: any) {
+  return {
+    id: s.id, name: s.name, description: s.description,
+    ownerId: s.owner_id, version: s.version,
+    inputSchema: s.input_schema, outputSchema: s.output_schema,
+    code: s.code, price: s.price,
+    executionCount: s.execution_count, avgRating: s.avg_rating,
+    timeoutMs: s.timeout_ms, maxMemoryMb: s.max_memory_mb,
+    createdAt: s.created_at, updatedAt: s.updated_at,
+  };
 }

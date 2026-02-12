@@ -1,9 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { v4 as uuid } from 'uuid';
 import { getDb } from '../db';
 
 export async function agentRoutes(app: FastifyInstance) {
-  // Register a new agent
   app.post('/agents', async (request, reply) => {
     const { name, description, walletAddress } = request.body as any;
 
@@ -12,39 +10,57 @@ export async function agentRoutes(app: FastifyInstance) {
     }
 
     const db = getDb();
-    const id = uuid();
+    const { data, error } = await db.from('agents')
+      .insert({ name, description: description || '', wallet_address: walletAddress })
+      .select()
+      .single();
 
-    db.prepare(`
-      INSERT INTO agents (id, name, description, walletAddress)
-      VALUES (?, ?, ?, ?)
-    `).run(id, name, description || '', walletAddress);
-
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(id);
-    return reply.status(201).send(agent);
+    if (error) return reply.status(500).send({ error: error.message });
+    return reply.status(201).send(formatAgent(data));
   });
 
-  // Get agent by ID
   app.get('/agents/:agentId', async (request, reply) => {
     const { agentId } = request.params as any;
     const db = getDb();
 
-    const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId);
-    if (!agent) {
-      return reply.status(404).send({ error: 'Agent not found' });
-    }
+    const { data: agent, error } = await db.from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .single();
 
-    // Get agent's skills
-    const skills = db.prepare('SELECT id, name, version, price, executionCount, avgRating FROM skills WHERE ownerId = ?').all(agentId);
+    if (error || !agent) return reply.status(404).send({ error: 'Agent not found' });
 
-    return { ...(agent as any), skills };
+    const { data: skills } = await db.from('skills')
+      .select('id, name, version, price, execution_count, avg_rating')
+      .eq('owner_id', agentId);
+
+    return {
+      ...formatAgent(agent),
+      skills: (skills || []).map((s: any) => ({
+        id: s.id, name: s.name, version: s.version,
+        price: s.price, executionCount: s.execution_count, avgRating: s.avg_rating,
+      })),
+    };
   });
 
-  // List all agents
   app.get('/agents', async (request) => {
     const db = getDb();
     const { limit = '20', offset = '0' } = request.query as any;
-    const agents = db.prepare('SELECT * FROM agents ORDER BY reputation DESC LIMIT ? OFFSET ?')
-      .all(Number(limit), Number(offset));
+
+    const { data, error } = await db.from('agents')
+      .select('*')
+      .order('reputation', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    const agents = (data || []).map(formatAgent);
     return { agents, count: agents.length };
   });
+}
+
+function formatAgent(a: any) {
+  return {
+    id: a.id, name: a.name, description: a.description,
+    walletAddress: a.wallet_address, reputation: a.reputation,
+    skillsExecuted: a.skills_executed, createdAt: a.created_at,
+  };
 }
