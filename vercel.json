@@ -1,6 +1,14 @@
 {
+  "framework": null,
+  "buildCommand": "npm run build && mkdir -p public && echo '<html><head><meta http-equiv=\"refresh\" content=\"0;url=/health\"></head></html>' > public/index.html",
+  "outputDirectory": "public",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api" }
+    { "source": "/health", "destination": "/api" },
+    { "source": "/agents/:path*", "destination": "/api" },
+    { "source": "/skills/:path*", "destination": "/api" },
+    { "source": "/execute/:path*", "destination": "/api" },
+    { "source": "/executions/:path*", "destination": "/api" },
+    { "source": "/contracts/:path*", "destination": "/api" }
   ],
   "functions": {
     "api/index.ts": {
