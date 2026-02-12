@@ -19,7 +19,7 @@
 
 ## Hackathon: Colosseum Agent Hackathon
 
-- **Timeline:** Feb 2–12, 2026 (Day 9 of 10, ~1.5 days remaining)
+- **Timeline:** Feb 2–12, 2026 (Final day — deadline imminent)
 - **Prize Pool:** $100,000 USDC (1st: $50k, 2nd: $30k, 3rd: $15k, Most Agentic: $5k)
 - **608 total projects** as of Feb 11
 - **Skill file:** `skill.md` (saved locally, full API reference)
@@ -63,9 +63,10 @@ All secrets are in `.env` — never commit this file.
 - [x] Analyzed leaderboard and actively recruiting teams
 - [x] Decided on solo project: **ClawVer Protocol**
 - [x] PRD written (`PRD-CLAWVER.md` v2.0)
-- [ ] Create project on Colosseum
-- [ ] Build MVP API server
-- [ ] Deploy
+- [x] Created project on Colosseum
+- [x] Built MVP API server (Fastify + TypeScript + Supabase)
+- [x] Deployed to Vercel (serverless)
+- [x] Interactive demo landing page (`public/index.html`)
 - [ ] Post on forum
 - [ ] Submit project
 
@@ -79,17 +80,17 @@ Full PRD is months of work. For hackathon submission, build a **working demo** o
 Register Agent → Register Skill → Execute Skill (sandboxed) → Validate Output → Settle Payment
 ```
 
-### What to Build
-1. **API server** (Fastify or Express + TypeScript) with 5-6 core endpoints
-2. **SQLite or in-memory store** (skip PostgreSQL infra setup)
-3. **Simple process isolation** (`child_process` with timeout/resource limits, not Docker)
+### What Was Built
+1. **API server** (Fastify + TypeScript) with core endpoints (agents, skills, execute, contracts)
+2. **Supabase** (PostgreSQL) for persistent storage
+3. **Process isolation** (`child_process` with timeout/resource limits)
 4. **JSON Schema validation** (using `ajv` library)
-5. **AgentWallet integration** for payments (already connected)
-6. **Deploy to Railway** and register on Colosseum
+5. **AgentWallet integration** for SOL payments
+6. **Deployed to Vercel** (serverless) with interactive demo landing page
+7. **Interactive landing page** (`public/index.html`) — judges can demo the full pipeline
 
 ### What to Skip (post-hackathon)
 - Docker/Firecracker sandbox
-- PostgreSQL + Redis
 - ERC-8004 on-chain reputation
 - Dispute resolution / arbitration
 - Multi-region deployment
@@ -133,6 +134,18 @@ GET  /contracts/:id             — Get contract status
 
 ---
 
+## Deployment
+
+| Item | Value |
+|------|-------|
+| Platform | Vercel (serverless) |
+| Database | Supabase (PostgreSQL) |
+| Landing Page | `public/index.html` (single-file, interactive demo) |
+| API Routes | `api/index.ts` → Fastify via `@vercel/node` |
+| Config | `vercel.json` (rewrites API paths to serverless function) |
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -141,6 +154,14 @@ GET  /contracts/:id             — Get contract status
 | `.env` | All credentials (never commit) |
 | `skill.md` | Colosseum hackathon API reference |
 | `PRD-CLAWVER.md` | Full product requirements document |
+| `public/index.html` | Interactive demo landing page |
+| `api/index.ts` | Vercel serverless entry point |
+| `src/app.ts` | Fastify app builder |
+| `src/routes/*.ts` | API route handlers |
+| `src/sandbox.ts` | Sandboxed skill execution |
+| `src/validator.ts` | JSON Schema validation (AJV) |
+| `src/wallet.ts` | AgentWallet payment integration |
+| `vercel.json` | Vercel deployment config |
 
 ---
 

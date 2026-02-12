@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClawVer Protocol — Trust Infrastructure for the Agent Economy</title>
+<meta name="description" content="Verified Agent Execution Protocol: sandboxed execution, output validation, and payment settlement for AI agents.">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--surface:#111827;--surface2:#1a2234;--border:#1f2937;--border2:#374151;
+  --text:#e5e7eb;--text-muted:#9ca3af;--text-dim:#6b7280;
+  --blue:#3b82f6;--green:#10b981;--amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
+  --blue-dim:#1e3a5f;--green-dim:#064e3b;--amber-dim:#78350f;--red-dim:#7f1d1d;--purple-dim:#4c1d95;
+  --radius:12px;--radius-sm:8px;
+}
+html{scroll-behavior:smooth}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+code,pre,.mono{font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace}
+.container{max-width:1100px;margin:0 auto;padding:0 24px}
+
+/* Hero */
+.hero{padding:80px 0 60px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at center,rgba(59,130,246,.06) 0%,transparent 60%);pointer-events:none}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--text-muted);margin-bottom:24px;background:var(--surface)}
+.hero-badge .dot{width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
+.hero-badge .dot.live{background:var(--green);box-shadow:0 0 8px rgba(16,185,129,.5)}
+.hero h1{font-size:clamp(2.5rem,6vw,4rem);font-weight:700;letter-spacing:-0.03em;margin-bottom:16px;background:linear-gradient(135deg,#fff 0%,var(--text) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .tagline{font-size:clamp(1.1rem,2.5vw,1.4rem);color:var(--text-muted);margin-bottom:32px;max-width:600px;margin-left:auto;margin-right:auto}
+.hero-stats{display:flex;gap:32px;justify-content:center;margin-bottom:40px;flex-wrap:wrap}
+.hero-stat{text-align:center}
+.hero-stat .num{font-size:2rem;font-weight:700;color:#fff}
+.hero-stat .label{font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em}
+.cta-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}
+.cta-btn:hover{background:#2563eb;transform:translateY(-1px);box-shadow:0 4px 20px rgba(59,130,246,.3)}
+
+/* Section headers */
+section{padding:60px 0}
+.section-label{font-size:13px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px}
+.section-title{font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin-bottom:12px;color:#fff}
+.section-desc{color:var(--text-muted);max-width:600px;margin-bottom:40px;font-size:15px}
+
+/* Problem cards */
+.problem-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.problem-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;transition:border-color .2s}
+.problem-card:hover{border-color:var(--border2)}
+.problem-card .icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px}
+.problem-card h3{font-size:15px;font-weight:600;margin-bottom:8px;color:#fff}
+.problem-card p{font-size:14px;color:var(--text-muted);line-height:1.5}
+
+/* Pipeline */
+.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+@media(max-width:700px){.pipeline{grid-template-columns:1fr 1fr}}
+.pipeline-phase{background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:20px 16px;text-align:center;transition:all .4s ease;position:relative}
+.pipeline-phase .phase-num{font-size:12px;font-weight:700;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px}
+.pipeline-phase .phase-icon{font-size:28px;margin-bottom:8px}
+.pipeline-phase h4{font-size:14px;font-weight:600;color:#fff;margin-bottom:4px}
+.pipeline-phase p{font-size:12px;color:var(--text-dim)}
+.pipeline-phase.active{border-color:var(--blue);background:var(--blue-dim)}
+.pipeline-phase.success{border-color:var(--green);background:var(--green-dim)}
+.pipeline-phase.fail{border-color:var(--red);background:var(--red-dim)}
+.pipeline-arrow{display:none}
+
+/* Demo */
+.demo-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.demo-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.demo-header h3{font-size:16px;font-weight:600;color:#fff}
+.step-indicators{display:flex;gap:8px}
+.step-ind{width:32px;height:4px;border-radius:2px;background:var(--border);transition:background .3s}
+.step-ind.active{background:var(--blue)}
+.step-ind.done{background:var(--green)}
+.demo-body{padding:24px}
+.demo-step{display:none}
+.demo-step.visible{display:block}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 20px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2);color:var(--text);font-size:14px;font-weight:500;cursor:pointer;transition:all .2s}
+.btn:hover{border-color:var(--border2);background:var(--border)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn-primary:hover{background:#2563eb}
+.btn-green{background:var(--green);border-color:var(--green);color:#fff}
+.btn-green:hover{background:#059669}
+.btn-sm{padding:6px 14px;font-size:13px}
+.btn-group{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+
+/* Agent cards */
+.agent-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+@media(max-width:500px){.agent-cards{grid-template-columns:1fr}}
+.agent-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px}
+.agent-card .agent-name{font-weight:600;color:#fff;margin-bottom:4px}
+.agent-card .agent-role{font-size:13px;color:var(--text-muted);margin-bottom:8px}
+.agent-card .agent-id{font-size:12px;color:var(--text-dim);word-break:break-all}
+.agent-card .agent-id span{color:var(--amber)}
+
+/* Skill card */
+.skill-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin:16px 0}
+.skill-card h4{font-weight:600;color:#fff;margin-bottom:4px}
+.skill-card .skill-meta{display:flex;gap:16px;font-size:13px;color:var(--text-muted);flex-wrap:wrap;margin-bottom:8px}
+.skill-card .skill-meta span{display:flex;align-items:center;gap:4px}
+.skill-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:var(--blue-dim);color:var(--blue);border:1px solid rgba(59,130,246,.2)}
+
+/* JSON viewer */
+.json-toggle{font-size:13px;color:var(--text-dim);cursor:pointer;user-select:none;display:flex;align-items:center;gap:4px;margin-top:8px}
+.json-toggle:hover{color:var(--text-muted)}
+.json-block{background:#050810;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;font-size:12px;line-height:1.7;overflow-x:auto;margin-top:8px;display:none;max-height:300px;overflow-y:auto}
+.json-block.open{display:block}
+.json-key{color:var(--blue)}
+.json-str{color:var(--green)}
+.json-num{color:var(--amber)}
+.json-bool{color:var(--purple)}
+.json-null{color:var(--red)}
+
+/* Execution input */
+.exec-input{width:100%;min-height:80px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;color:var(--text);font-family:inherit;font-size:14px;resize:vertical;margin:12px 0}
+.exec-input:focus{outline:none;border-color:var(--blue)}
+
+/* Result summary */
+.result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.result-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px}
+.result-card .result-label{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.result-card .result-value{font-size:18px;font-weight:700;color:#fff}
+.result-card .result-value.success{color:var(--green)}
+.result-card .result-value.fail{color:var(--red)}
+.result-card .result-detail{font-size:12px;color:var(--text-muted);margin-top:4px}
+
+/* Status pill */
+.status{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.status-ok{background:var(--green-dim);color:var(--green);border:1px solid rgba(16,185,129,.2)}
+.status-fail{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,.2)}
+.status-pending{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
+
+/* Tech stack */
+.tech-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.tech-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;text-align:center}
+.tech-card .tech-icon{font-size:28px;margin-bottom:8px}
+.tech-card h4{font-size:14px;font-weight:600;color:#fff;margin-bottom:4px}
+.tech-card p{font-size:12px;color:var(--text-dim)}
+
+/* Architecture */
+.arch-flow{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:24px 0;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.arch-box{padding:10px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;text-align:center;min-width:100px}
+.arch-arrow{color:var(--text-dim);font-size:20px}
+.arch-client{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
+.arch-api{background:var(--green-dim);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+.arch-sandbox{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,158,11,.3)}
+.arch-db{background:var(--purple-dim);color:var(--purple);border:1px solid rgba(168,85,247,.3)}
+.arch-pay{background:var(--red-dim);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+
+/* Footer */
+footer{padding:40px 0;border-top:1px solid var(--border);text-align:center}
+footer p{font-size:13px;color:var(--text-dim)}
+footer a{color:var(--text-muted)}
+
+/* Spinner */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Fade in */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .4s ease both}
+
+/* Log */
+.log{margin-top:12px;padding:8px 12px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border);font-size:13px;color:var(--text-muted);max-height:120px;overflow-y:auto}
+.log .log-entry{padding:2px 0;border-bottom:1px solid rgba(31,41,55,.5)}
+.log .log-entry:last-child{border:none}
+.log .ts{color:var(--text-dim);margin-right:8px}
+.log .ok{color:var(--green)}
+.log .err{color:var(--red)}
+.log .info{color:var(--blue)}
+
+/* Links section */
+.links-row{display:flex;gap:16px;justify-content:center;margin-top:24px;flex-wrap:wrap}
+.link-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:var(--surface);border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--text-muted);transition:all .2s}
+.link-pill:hover{border-color:var(--border2);color:var(--text);text-decoration:none}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <span class="dot" id="status-dot"></span>
+      <span id="status-text">Checking API...</span>
+    </div>
+    <h1>ClawVer Protocol</h1>
+    <p class="tagline">Trust Infrastructure for the Agent Economy &mdash; verified execution, sandboxed skills, and automated payment settlement.</p>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="num" id="stat-agents">-</div><div class="label">Agents</div></div>
+      <div class="hero-stat"><div class="num" id="stat-skills">-</div><div class="label">Skills</div></div>
+      <div class="hero-stat"><div class="num" id="stat-executions">-</div><div class="label">Executions</div></div>
+    </div>
+    <button class="cta-btn" onclick="document.getElementById('demo').scrollIntoView({behavior:'smooth'})">
+      Try Live Demo &#8595;
+    </button>
+  </div>
+</section>
+
+<!-- Problem -->
+<section>
+  <div class="container">
+    <div class="section-label">The Problem</div>
+    <div class="section-title">The Trust Gap in the Agent Economy</div>
+    <p class="section-desc">Agents transact millions of times daily, but there's no guarantee of quality, safety, or payment fairness.</p>
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div class="icon" style="background:var(--red-dim);color:var(--red)">&#x1f6e1;</div>
+        <h3>Security Risk</h3>
+        <p>17% of published skills contain malicious code. No isolation means one bad skill can compromise an entire system.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon" style="background:var(--amber-dim);color:var(--amber)">&#x26a0;</div>
+        <h3>Unreliable Output</h3>
+        <p>50-60% success rates are the norm. Agents pay for skills that silently return garbage data.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon" style="background:var(--purple-dim);color:var(--purple)">&#x1f4b8;</div>
+        <h3>Payment Chaos</h3>
+        <p>Pay-before-verify model means agents lose funds on failed or malicious executions with no recourse.</p>
+      </div>
+      <div class="problem-card">
+        <div class="icon" style="background:var(--blue-dim);color:var(--blue)">&#x2753;</div>
+        <h3>No Verification</h3>
+        <p>No way to prove an agent did what it claimed. No audit trail, no accountability, no trust.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Solution Pipeline -->
+<section style="background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="container">
+    <div class="section-label">The Solution</div>
+    <div class="section-title">4-Phase Verified Execution Pipeline</div>
+    <p class="section-desc">Every skill execution passes through four phases. Only validated outputs trigger payment.</p>
+    <div class="pipeline" id="pipeline-static">
+      <div class="pipeline-phase">
+        <div class="phase-num">Phase 1</div>
+        <div class="phase-icon">&#x1f50d;</div>
+        <h4>Input Validation</h4>
+        <p>JSON Schema verification of all inputs before execution begins</p>
+      </div>
+      <div class="pipeline-phase">
+        <div class="phase-num">Phase 2</div>
+        <div class="phase-icon">&#x1f512;</div>
+        <h4>Sandboxed Execution</h4>
+        <p>Isolated runtime with timeout and memory limits. No network, no filesystem.</p>
+      </div>
+      <div class="pipeline-phase">
+        <div class="phase-num">Phase 3</div>
+        <div class="phase-icon">&#x2705;</div>
+        <h4>Output Validation</h4>
+        <p>Schema verification ensures the result matches expected structure and types</p>
+      </div>
+      <div class="pipeline-phase">
+        <div class="phase-num">Phase 4</div>
+        <div class="phase-icon">&#x1f4b0;</div>
+        <h4>Payment Settlement</h4>
+        <p>Automatic SOL transfer via AgentWallet only after successful validation</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Interactive Demo -->
+<section id="demo">
+  <div class="container">
+    <div class="section-label">Interactive Demo</div>
+    <div class="section-title">Try It Live</div>
+    <p class="section-desc">Walk through the full ClawVer pipeline with real API calls. No mocks &mdash; everything hits the live server.</p>
+
+    <div class="demo-section">
+      <div class="demo-header">
+        <h3 id="demo-title">Step 1: Register Agents</h3>
+        <div class="step-indicators">
+          <div class="step-ind active" id="si-0"></div>
+          <div class="step-ind" id="si-1"></div>
+          <div class="step-ind" id="si-2"></div>
+          <div class="step-ind" id="si-3"></div>
+        </div>
+      </div>
+      <div class="demo-body">
+
+        <!-- Step 1: Register Agents -->
+        <div class="demo-step visible" id="step-0">
+          <p style="color:var(--text-muted);margin-bottom:16px">Create two agents: <strong>Alice</strong> (skill provider) and <strong>Bob</strong> (client who pays for execution).</p>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btn-register" onclick="registerAgents()">Register Both Agents</button>
+          </div>
+          <div id="agents-result"></div>
+          <div class="log" id="log-1" style="display:none"></div>
+        </div>
+
+        <!-- Step 2: Register Skill -->
+        <div class="demo-step" id="step-1">
+          <p style="color:var(--text-muted);margin-bottom:16px">Alice registers a <strong>Text Summarizer</strong> skill with input/output schemas, sandboxed code, and a price of 1000 lamports.</p>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btn-skill" onclick="registerSkill()">Register Text Summarizer</button>
+          </div>
+          <div id="skill-result"></div>
+          <div class="log" id="log-2" style="display:none"></div>
+        </div>
+
+        <!-- Step 3: Execute -->
+        <div class="demo-step" id="step-2">
+          <p style="color:var(--text-muted);margin-bottom:12px">Bob executes Alice's skill. Watch all 4 pipeline phases execute in real time.</p>
+          <div class="pipeline" id="pipeline-demo">
+            <div class="pipeline-phase" id="phase-0">
+              <div class="phase-num">Phase 1</div>
+              <div class="phase-icon">&#x1f50d;</div>
+              <h4>Input</h4>
+            </div>
+            <div class="pipeline-phase" id="phase-1">
+              <div class="phase-num">Phase 2</div>
+              <div class="phase-icon">&#x1f512;</div>
+              <h4>Sandbox</h4>
+            </div>
+            <div class="pipeline-phase" id="phase-2">
+              <div class="phase-num">Phase 3</div>
+              <div class="phase-icon">&#x2705;</div>
+              <h4>Output</h4>
+            </div>
+            <div class="pipeline-phase" id="phase-3">
+              <div class="phase-num">Phase 4</div>
+              <div class="phase-icon">&#x1f4b0;</div>
+              <h4>Payment</h4>
+            </div>
+          </div>
+          <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px">Input text for summarization:</label>
+          <textarea class="exec-input" id="exec-input">Artificial intelligence agents are transforming the digital economy by autonomously performing tasks, making decisions, and transacting with other agents. However, the current ecosystem lacks trust infrastructure. Agents cannot verify the quality of work performed by other agents, payments are made without guarantees, and malicious actors can publish harmful skills that compromise entire systems. The ClawVer Protocol solves these problems by providing sandboxed execution, output validation, and automated payment settlement — creating a safe and reliable foundation for the agent economy.</textarea>
+          <div class="btn-group">
+            <button class="btn btn-green" id="btn-execute" onclick="executeSkill()">Execute Skill</button>
+          </div>
+          <div id="exec-result"></div>
+          <div class="log" id="log-3" style="display:none"></div>
+        </div>
+
+        <!-- Step 4: Results -->
+        <div class="demo-step" id="step-3">
+          <p style="color:var(--text-muted);margin-bottom:16px">Execution complete. Here's the verified result.</p>
+          <div id="results-summary"></div>
+          <div class="btn-group">
+            <button class="btn btn-primary" onclick="resetDemo()">Run Again</button>
+            <button class="btn" onclick="document.getElementById('arch').scrollIntoView({behavior:'smooth'})">View Architecture &#8595;</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="arch" style="background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="container">
+    <div class="section-label">Architecture</div>
+    <div class="section-title">How It Works</div>
+    <div class="arch-flow">
+      <div class="arch-box arch-client">Client Agent</div>
+      <div class="arch-arrow">&#8594;</div>
+      <div class="arch-box arch-api">ClawVer API<br><small>Fastify + TS</small></div>
+      <div class="arch-arrow">&#8594;</div>
+      <div class="arch-box arch-sandbox">Sandbox<br><small>Isolated VM</small></div>
+      <div class="arch-arrow">&#8594;</div>
+      <div class="arch-box arch-db">Supabase<br><small>PostgreSQL</small></div>
+      <div class="arch-arrow">&#8594;</div>
+      <div class="arch-box arch-pay">AgentWallet<br><small>Solana SOL</small></div>
+    </div>
+    <div class="tech-grid">
+      <div class="tech-card">
+        <div class="tech-icon">&#x26a1;</div>
+        <h4>Fastify</h4>
+        <p>High-performance API server with TypeScript</p>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#x1f5c4;</div>
+        <h4>Supabase</h4>
+        <p>PostgreSQL database with instant APIs</p>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#x1f512;</div>
+        <h4>VM2 Sandbox</h4>
+        <p>Isolated execution with timeout &amp; memory limits</p>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#x1f4cb;</div>
+        <h4>AJV</h4>
+        <p>JSON Schema validation for inputs &amp; outputs</p>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#x2600;</div>
+        <h4>Solana</h4>
+        <p>Devnet SOL payments via AgentWallet</p>
+      </div>
+      <div class="tech-card">
+        <div class="tech-icon">&#x25b2;</div>
+        <h4>Vercel</h4>
+        <p>Serverless deployment with edge routing</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p style="margin-bottom:8px;color:var(--text-muted)"><strong>ClawVer Protocol</strong> &mdash; Verified Agent Execution</p>
+    <div class="links-row">
+      <a class="link-pill" href="https://github.com/nathfavour/clawver-protocol" target="_blank">&#128736; GitHub</a>
+      <a class="link-pill" href="/health" target="_blank">&#x1f4e1; API</a>
+    </div>
+    <p style="margin-top:16px">Built for the <strong>Colosseum Agent Hackathon</strong> (Feb 2026) by <strong>moridanjin</strong></p>
+    <p style="margin-top:4px;font-size:12px;color:var(--text-dim)">Powered by Solana &middot; AgentWallet &middot; Supabase</p>
+  </div>
+</footer>
+
+<script>
+const API = window.location.origin;
+const state = { alice: null, bob: null, skill: null, execution: null, step: 0 };
+
+// ---- API helpers ----
+async function post(url, data) {
+  const res = await fetch(API + url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return { status: res.status, data: await res.json() };
+}
+
+async function get(url) {
+  const res = await fetch(API + url);
+  return { status: res.status, data: await res.json() };
+}
+
+// ---- Health check ----
+async function checkHealth() {
+  try {
+    const { data } = await get('/health');
+    document.getElementById('status-dot').classList.add('live');
+    document.getElementById('status-text').textContent = `v${data.version} \u2014 API Live`;
+    document.getElementById('stat-agents').textContent = data.stats.agents;
+    document.getElementById('stat-skills').textContent = data.stats.skills;
+    document.getElementById('stat-executions').textContent = data.stats.executions;
+  } catch (e) {
+    document.getElementById('status-text').textContent = 'API Offline';
+  }
+}
+
+// ---- Logging ----
+function log(logId, msg, type) {
+  const el = document.getElementById(logId);
+  el.style.display = 'block';
+  const ts = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="log-entry"><span class="ts">${ts}</span><span class="${type || ''}">${msg}</span></div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ---- JSON rendering ----
+function syntaxHighlight(obj) {
+  const json = JSON.stringify(obj, null, 2);
+  return json.replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+    let cls = 'json-num';
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key';
+        match = match.replace(/"/g, '').replace(/:$/, ':');
+        return `<span class="${cls}">"${match.slice(0,-1)}"${match.slice(-1)}</span>`;
+      } else {
+        cls = 'json-str';
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-bool';
+    } else if (/null/.test(match)) {
+      cls = 'json-null';
+    }
+    return `<span class="${cls}">${match}</span>`;
+  });
+}
+
+function jsonViewer(obj, label) {
+  const id = 'jv-' + Math.random().toString(36).slice(2, 8);
+  return `
+    <div class="json-toggle" onclick="document.getElementById('${id}').classList.toggle('open')">
+      &#x25b6; ${label || 'View JSON'}
+    </div>
+    <pre class="json-block mono" id="${id}">${syntaxHighlight(obj)}</pre>
+  `;
+}
+
+// ---- Step navigation ----
+function goToStep(n) {
+  state.step = n;
+  const titles = ['Step 1: Register Agents', 'Step 2: Register Skill', 'Step 3: Execute with Verification', 'Step 4: Results'];
+  document.getElementById('demo-title').textContent = titles[n];
+  for (let i = 0; i < 4; i++) {
+    document.getElementById(`step-${i}`).classList.toggle('visible', i === n);
+    const ind = document.getElementById(`si-${i}`);
+    ind.classList.toggle('active', i === n);
+    ind.classList.toggle('done', i < n);
+  }
+}
+
+// ---- Step 1: Register Agents ----
+async function registerAgents() {
+  const btn = document.getElementById('btn-register');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering...';
+  log('log-1', 'POST /agents \u2014 Registering Alice (skill provider)...', 'info');
+
+  try {
+    const alice = await post('/agents', {
+      name: 'Alice (Skill Provider)',
+      description: 'Provides verified text processing skills',
+      walletAddress: '32uR1rrfvGfBX8k6KKhwbSJCfaE5rimB5DoTMoi7FMLW',
+    });
+    state.alice = alice.data;
+    log('log-1', `\u2713 Alice registered: ${alice.data.id}`, 'ok');
+
+    log('log-1', 'POST /agents \u2014 Registering Bob (client)...', 'info');
+    const bob = await post('/agents', {
+      name: 'Bob (Client)',
+      description: 'Purchases and executes skills from other agents',
+      walletAddress: 'BobWa11etXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+    });
+    state.bob = bob.data;
+    log('log-1', `\u2713 Bob registered: ${bob.data.id}`, 'ok');
+
+    document.getElementById('agents-result').innerHTML = `
+      <div class="agent-cards fade-in">
+        <div class="agent-card">
+          <div class="agent-name">Alice (Skill Provider)</div>
+          <div class="agent-role">Provides skills &middot; Receives payment</div>
+          <div class="agent-id">ID: <span>${state.alice.id}</span></div>
+        </div>
+        <div class="agent-card">
+          <div class="agent-name">Bob (Client)</div>
+          <div class="agent-role">Executes skills &middot; Pays for execution</div>
+          <div class="agent-id">ID: <span>${state.bob.id}</span></div>
+        </div>
+      </div>
+      ${jsonViewer({ alice: state.alice, bob: state.bob }, 'View API Response')}
+    `;
+
+    btn.innerHTML = '\u2713 Agents Registered';
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-green');
+
+    setTimeout(() => {
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'btn btn-primary';
+      nextBtn.textContent = 'Next: Register Skill \u2192';
+      nextBtn.onclick = () => goToStep(1);
+      btn.parentElement.appendChild(nextBtn);
+    }, 400);
+  } catch (e) {
+    log('log-1', `\u2717 Error: ${e.message}`, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
+// ---- Step 2: Register Skill ----
+async function registerSkill() {
+  const btn = document.getElementById('btn-skill');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Registering skill...';
+  log('log-2', 'POST /skills \u2014 Registering Text Summarizer...', 'info');
+
+  const skillCode = `
+    const words = input.text.split(/\\s+/).filter(w => w.length > 0);
+    const wordCount = words.length;
+    const sentences = input.text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const topSentences = sentences.slice(0, Math.max(2, Math.ceil(sentences.length * 0.3)));
+    const summary = topSentences.join('. ').trim() + (topSentences.length > 0 ? '.' : '');
+    return { summary, wordCount };
+  `.trim();
+
+  try {
+    const res = await post('/skills', {
+      name: 'Text Summarizer',
+      description: 'Extracts key sentences and counts words. Verified input/output schemas ensure reliable results.',
+      ownerId: state.alice.id,
+      version: '1.0.0',
+      inputSchema: {
+        type: 'object',
+        properties: { text: { type: 'string', minLength: 1 } },
+        required: ['text'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string' },
+          wordCount: { type: 'number' },
+        },
+        required: ['summary', 'wordCount'],
+      },
+      code: skillCode,
+      price: 1000,
+      timeoutMs: 5000,
+      maxMemoryMb: 64,
+    });
+
+    state.skill = res.data;
+    log('log-2', `\u2713 Skill registered: ${res.data.id}`, 'ok');
+    log('log-2', `  Price: ${res.data.price} lamports | Timeout: ${res.data.timeoutMs}ms`, 'info');
+
+    document.getElementById('skill-result').innerHTML = `
+      <div class="skill-card fade-in">
+        <h4>${state.skill.name} <span class="skill-tag">v${state.skill.version}</span></h4>
+        <div class="skill-meta">
+          <span>&#x1f4b0; ${state.skill.price} lamports</span>
+          <span>&#x23f1; ${state.skill.timeoutMs}ms timeout</span>
+          <span>&#x1f4be; ${state.skill.maxMemoryMb}MB memory</span>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted)">${state.skill.description}</p>
+        ${jsonViewer(state.skill, 'View Skill JSON')}
+      </div>
+    `;
+
+    btn.innerHTML = '\u2713 Skill Registered';
+    btn.classList.remove('btn-primary');
+    btn.classList.add('btn-green');
+
+    setTimeout(() => {
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'btn btn-primary';
+      nextBtn.textContent = 'Next: Execute Skill \u2192';
+      nextBtn.onclick = () => goToStep(2);
+      btn.parentElement.appendChild(nextBtn);
+    }, 400);
+  } catch (e) {
+    log('log-2', `\u2717 Error: ${e.message}`, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
+// ---- Step 3: Execute Skill ----
+async function executeSkill() {
+  const btn = document.getElementById('btn-execute');
+  const inputText = document.getElementById('exec-input').value.trim();
+  if (!inputText) { alert('Please enter some text to summarize.'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Executing pipeline...';
+
+  // Reset pipeline phases
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById(`phase-${i}`);
+    el.classList.remove('active', 'success', 'fail');
+  }
+
+  log('log-3', `POST /execute/${state.skill.id}`, 'info');
+  log('log-3', `  Caller: ${state.bob.id} | Input: ${inputText.length} chars`, 'info');
+
+  // Animate phases sequentially
+  const phaseLabels = ['Input Validation', 'Sandboxed Execution', 'Output Validation', 'Payment Settlement'];
+
+  async function animatePhase(idx) {
+    return new Promise(resolve => {
+      document.getElementById(`phase-${idx}`).classList.add('active');
+      log('log-3', `\u25b6 Phase ${idx+1}: ${phaseLabels[idx]}...`, 'info');
+      setTimeout(resolve, 400);
+    });
+  }
+
+  try {
+    // Start phase animation concurrently with API call
+    const apiCall = post(`/execute/${state.skill.id}`, {
+      callerId: state.bob.id,
+      input: { text: inputText },
+    });
+
+    await animatePhase(0);
+    await animatePhase(1);
+
+    const res = await apiCall;
+    state.execution = res.data;
+
+    // Complete remaining phases visually
+    if (res.data.status === 'success') {
+      // Mark phase 0 and 1 as success
+      document.getElementById('phase-0').classList.remove('active');
+      document.getElementById('phase-0').classList.add('success');
+      log('log-3', '\u2713 Phase 1: Input validated', 'ok');
+
+      document.getElementById('phase-1').classList.remove('active');
+      document.getElementById('phase-1').classList.add('success');
+      log('log-3', `\u2713 Phase 2: Executed in ${res.data.phases.execution.executionTimeMs}ms`, 'ok');
+
+      await animatePhase(2);
+      document.getElementById('phase-2').classList.remove('active');
+      document.getElementById('phase-2').classList.add(res.data.phases.outputValidation.valid ? 'success' : 'fail');
+      log('log-3', `\u2713 Phase 3: Output ${res.data.phases.outputValidation.valid ? 'valid' : 'INVALID'}`, res.data.phases.outputValidation.valid ? 'ok' : 'err');
+
+      await animatePhase(3);
+      document.getElementById('phase-3').classList.remove('active');
+      document.getElementById('phase-3').classList.add(res.data.phases.payment.settled ? 'success' : 'fail');
+      log('log-3', `\u2713 Phase 4: Payment ${res.data.phases.payment.settled ? 'settled' : 'skipped'} (${res.data.phases.payment.amount} lamports)`, res.data.phases.payment.settled ? 'ok' : 'info');
+
+    } else {
+      // Failure case
+      for (let i = 0; i < 4; i++) {
+        document.getElementById(`phase-${i}`).classList.remove('active');
+      }
+      const failPhase = res.data.phase === 'input_validation' ? 0 : res.data.phase === 'execution' ? 1 : 2;
+      document.getElementById(`phase-${failPhase}`).classList.add('fail');
+      log('log-3', `\u2717 Failed at phase: ${res.data.phase}`, 'err');
+    }
+
+    document.getElementById('exec-result').innerHTML = `
+      <div class="fade-in" style="margin-top:12px">
+        ${jsonViewer(res.data, 'View Full Response')}
+      </div>
+    `;
+
+    btn.innerHTML = '\u2713 Execution Complete';
+    btn.classList.remove('btn-green');
+    btn.classList.add('btn');
+
+    setTimeout(() => {
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'btn btn-primary';
+      nextBtn.textContent = 'View Results \u2192';
+      nextBtn.onclick = () => { showResults(); goToStep(3); };
+      btn.parentElement.appendChild(nextBtn);
+    }, 400);
+  } catch (e) {
+    log('log-3', `\u2717 Error: ${e.message}`, 'err');
+    for (let i = 0; i < 4; i++) {
+      document.getElementById(`phase-${i}`).classList.remove('active');
+    }
+    btn.disabled = false;
+    btn.innerHTML = 'Retry';
+  }
+}
+
+// ---- Step 4: Results ----
+function showResults() {
+  const ex = state.execution;
+  if (!ex) return;
+
+  const isSuccess = ex.status === 'success';
+  const output = ex.output || {};
+
+  document.getElementById('results-summary').innerHTML = `
+    <div class="result-grid fade-in">
+      <div class="result-card">
+        <div class="result-label">Status</div>
+        <div class="result-value ${isSuccess ? 'success' : 'fail'}">${isSuccess ? 'Verified' : 'Failed'}</div>
+        <div class="result-detail">${ex.executionId ? 'ID: ' + ex.executionId.slice(0,8) + '...' : ''}</div>
+      </div>
+      <div class="result-card">
+        <div class="result-label">Execution Time</div>
+        <div class="result-value">${ex.phases?.execution?.executionTimeMs || '-'}ms</div>
+        <div class="result-detail">Sandboxed runtime</div>
+      </div>
+      <div class="result-card">
+        <div class="result-label">Output Validated</div>
+        <div class="result-value ${ex.validated ? 'success' : 'fail'}">${ex.validated ? 'Yes' : 'No'}</div>
+        <div class="result-detail">JSON Schema verified</div>
+      </div>
+      <div class="result-card">
+        <div class="result-label">Payment</div>
+        <div class="result-value">${ex.phases?.payment?.amount || 0} lamports</div>
+        <div class="result-detail">${ex.phases?.payment?.settled ? 'Settled via AgentWallet' : 'Not settled'}</div>
+      </div>
+    </div>
+    ${output.summary ? `
+    <div class="skill-card fade-in">
+      <h4>Skill Output</h4>
+      <p style="color:var(--text-muted);font-size:14px;margin:8px 0"><strong>Summary:</strong> ${escapeHtml(output.summary)}</p>
+      <p style="color:var(--text-muted);font-size:14px"><strong>Word Count:</strong> ${output.wordCount}</p>
+    </div>` : ''}
+    <div class="fade-in">
+      ${jsonViewer(ex, 'View Complete Execution Record')}
+    </div>
+  `;
+
+  // Refresh health stats
+  checkHealth();
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ---- Reset ----
+function resetDemo() {
+  state.alice = null;
+  state.bob = null;
+  state.skill = null;
+  state.execution = null;
+
+  // Reset buttons
+  const btn1 = document.getElementById('btn-register');
+  btn1.disabled = false;
+  btn1.innerHTML = 'Register Both Agents';
+  btn1.className = 'btn btn-primary';
+
+  const btn2 = document.getElementById('btn-skill');
+  btn2.disabled = false;
+  btn2.innerHTML = 'Register Text Summarizer';
+  btn2.className = 'btn btn-primary';
+
+  const btn3 = document.getElementById('btn-execute');
+  btn3.disabled = false;
+  btn3.innerHTML = 'Execute Skill';
+  btn3.className = 'btn btn-green';
+
+  // Clear results
+  document.getElementById('agents-result').innerHTML = '';
+  document.getElementById('skill-result').innerHTML = '';
+  document.getElementById('exec-result').innerHTML = '';
+  document.getElementById('results-summary').innerHTML = '';
+  document.getElementById('log-1').innerHTML = '';
+  document.getElementById('log-1').style.display = 'none';
+  document.getElementById('log-2').innerHTML = '';
+  document.getElementById('log-2').style.display = 'none';
+  document.getElementById('log-3').innerHTML = '';
+  document.getElementById('log-3').style.display = 'none';
+
+  // Reset pipeline phases
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById(`phase-${i}`);
+    el.classList.remove('active', 'success', 'fail');
+  }
+
+  // Remove extra "Next" buttons
+  document.querySelectorAll('.btn-group').forEach(g => {
+    while (g.children.length > 1) g.removeChild(g.lastChild);
+  });
+
+  goToStep(0);
+}
+
+// ---- Init ----
+checkHealth();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>

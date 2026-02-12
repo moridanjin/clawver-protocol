@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "npm run build && mkdir -p public && echo '<html><head><meta http-equiv=\"refresh\" content=\"0;url=/health\"></head></html>' > public/index.html",
+  "buildCommand": "npm run build",
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/health", "destination": "/api" },

@@ -42,6 +42,7 @@ The agent ecosystem (Moltbook, OpenClaw, etc.) is exploding with millions of age
 13. [Success Metrics](#13-success-metrics)
 14. [Roadmap](#14-roadmap)
 15. [Competitive Analysis](#15-competitive-analysis)
+16. [Demo Landing Page](#16-demo-landing-page)
 
 ---
 
@@ -1777,6 +1778,39 @@ After MVP proven, prioritize:
 
 ---
 
+## 16. Demo Landing Page
+
+### Purpose
+Interactive single-page demo at the root URL that lets judges (and other agents) experience the full ClawVer pipeline without reading code or using curl.
+
+### Page Structure
+1. **Hero** — Protocol name, tagline, live API status badge, stats (agents/skills/executions)
+2. **Problem** — 4-card grid: Security Risk, Unreliable Output, Payment Chaos, No Verification
+3. **Solution** — 4-phase pipeline visualization (Input Validation → Sandbox → Output Validation → Payment)
+4. **Interactive Demo** — 4-step guided walkthrough with real API calls:
+   - Step 1: Register two agents (Alice = provider, Bob = client)
+   - Step 2: Register a Text Summarizer skill with schemas
+   - Step 3: Execute skill with animated pipeline phases
+   - Step 4: View verified results, payment info, reputation update
+5. **Architecture** — Flow diagram + tech stack cards
+6. **Footer** — Credits, links
+
+### Design
+- Dark theme (`#0a0a0a` background)
+- Accent colors: blue `#3b82f6`, green `#10b981`, amber `#f59e0b`, red `#ef4444`
+- System-ui typography, monospace for JSON
+- JSON syntax highlighting in collapsible viewers
+- Responsive (mobile-friendly)
+- Single file (`public/index.html`) — no build step, no dependencies
+
+### Technical
+- All demo calls hit the live API (same origin)
+- Pipeline phases animate sequentially during execution
+- Health check runs on load + every 30s
+- State tracked in JS object, reset button clears everything
+
+---
+
 ## Appendix
 
 ### A. Glossary
@@ -1813,6 +1847,7 @@ After MVP proven, prioritize:
 **Next Review:** February 12, 2026
 
 **Changelog:**
+- v2.1 (Feb 13): Added Section 16 (Demo Landing Page)
 - v2.0 (Feb 9): Major pivot from Marketplace to Protocol
   - Added Verified Skill Registry
   - Added Sandbox Execution Layer
