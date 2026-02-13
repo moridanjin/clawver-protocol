@@ -24,7 +24,8 @@
     "fastify": "^5.2.1",
     "quickjs-emscripten": "^0.31.0",
     "tweetnacl": "^1.0.3",
-    "uuid": "^11.0.5"
+    "uuid": "^11.0.5",
+    "x402-solana": "^2.0.3"
   },
   "devDependencies": {
     "@types/bs58": "^4.0.4",

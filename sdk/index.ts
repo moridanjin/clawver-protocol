@@ -57,11 +57,34 @@ export interface ExecutionResult {
     inputValidation: { valid: boolean };
     execution: { success: boolean; executionTimeMs: number };
     outputValidation: { valid: boolean; errors: string[] | null };
-    payment: { amount: number; txSignature: string | null; settled: boolean };
+    payment: { method?: string; amount: number; txSignature: string | null; settled: boolean };
   };
   output: unknown;
   validated: boolean;
   executionHash: string;
+}
+
+/**
+ * Callback to sign a Solana transaction for x402 payment.
+ * Receives base64-encoded transaction, returns base64-encoded signed transaction.
+ */
+export type SignTransactionFn = (transactionBase64: string) => Promise<string>;
+
+/**
+ * x402 Payment Requirements returned in a 402 response.
+ */
+export interface PaymentRequirements {
+  x402Version: number;
+  accepts: Array<{
+    scheme: string;
+    network: string;
+    amount: string;
+    payTo: string;
+    asset: string;
+    maxTimeoutSeconds?: number;
+    extra?: Record<string, unknown>;
+  }>;
+  error?: string;
 }
 
 export interface ExecutionProof {
@@ -181,8 +204,10 @@ export class ClawVer {
 
   // -- HTTP helpers --
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers = method === 'GET' ? { 'Content-Type': 'application/json' } : this.signHeaders();
+  private async request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+    const headers = method === 'GET'
+      ? { 'Content-Type': 'application/json' }
+      : { ...this.signHeaders(), ...extraHeaders };
     const res = await fetch(`${this.apiUrl}${path}`, {
       method,
       headers,
@@ -193,6 +218,17 @@ export class ClawVer {
       throw new ClawVerError(data.error || `HTTP ${res.status}`, res.status, data);
     }
     return data as T;
+  }
+
+  private async rawRequest(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<Response> {
+    const headers = method === 'GET'
+      ? { 'Content-Type': 'application/json' }
+      : { ...this.signHeaders(), ...extraHeaders };
+    return fetch(`${this.apiUrl}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   }
 
   private get<T>(path: string): Promise<T> { return this.request('GET', path); }
@@ -231,6 +267,76 @@ export class ClawVer {
 
   async execute(skillId: string, input: unknown): Promise<ExecutionResult> {
     return this.post<ExecutionResult>(`/execute/${skillId}`, { input });
+  }
+
+  /**
+   * Execute a skill with x402 micropayment.
+   * Handles the full 402 → sign → retry flow automatically.
+   *
+   * @param skillId - Skill to execute
+   * @param input - Input data for the skill
+   * @param signTransaction - Callback to sign the Solana payment transaction
+   * @returns Execution result with payment settlement proof
+   */
+  async executeWithPayment(
+    skillId: string,
+    input: unknown,
+    signTransaction: SignTransactionFn,
+  ): Promise<ExecutionResult> {
+    const path = `/execute/${skillId}`;
+    const body = { input };
+
+    // First request — expect 402 if skill has a price
+    const res = await this.rawRequest('POST', path, body);
+
+    if (res.status !== 402) {
+      // Skill is free or x402 is disabled — return result directly
+      const data = await res.json() as any;
+      if (!res.ok) {
+        throw new ClawVerError(data.error || `HTTP ${res.status}`, res.status, data);
+      }
+      return data as ExecutionResult;
+    }
+
+    // Got 402 — extract payment requirements
+    const paymentRequired = await res.json() as any;
+
+    // Read requirements from PAYMENT-REQUIRED header (v2) or response body
+    let requirements: PaymentRequirements;
+    const headerValue = res.headers.get('payment-required');
+    if (headerValue) {
+      requirements = JSON.parse(Buffer.from(headerValue, 'base64').toString());
+    } else {
+      requirements = paymentRequired;
+    }
+
+    if (!requirements.accepts || requirements.accepts.length === 0) {
+      throw new ClawVerError('No payment options in 402 response', 402, paymentRequired);
+    }
+
+    // Extract the unsigned transaction from the requirements (facilitator's feePayer tx)
+    const accept = requirements.accepts[0];
+    const extra = accept.extra || {};
+
+    // Sign the transaction via the provided callback
+    // The signTransaction callback should create and sign a Solana USDC transfer
+    // matching the payment requirements
+    const signedTx = await signTransaction(JSON.stringify(accept));
+
+    // Build the PAYMENT-SIGNATURE header (v2 format)
+    const paymentPayload = {
+      x402Version: 2,
+      scheme: accept.scheme || 'exact',
+      network: accept.network,
+      payload: { transaction: signedTx },
+      resource: `${this.apiUrl}${path}`,
+    };
+    const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
+
+    // Retry with payment
+    return this.request<ExecutionResult>('POST', path, body, {
+      'PAYMENT-SIGNATURE': paymentHeader,
+    });
   }
 
   async getExecution(executionId: string): Promise<any> {

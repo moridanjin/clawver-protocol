@@ -3,6 +3,7 @@ import { getDb } from '../db';
 import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
+import { isX402Enabled, extractPaymentHeader, createPaymentRequired, verifyAndSettle, encodePaymentResponse } from '../x402';
 import { computeExecutionHash } from '../proof';
 
 export async function contractRoutes(app: FastifyInstance) {
@@ -33,11 +34,39 @@ export async function contractRoutes(app: FastifyInstance) {
       }
     }
 
-    // Escrow: lock funds by transferring from platform to escrow hold
-    // In production this would lock client funds; for devnet demo, we record the escrow intent
+    // Escrow payment via x402 or legacy
     let escrowTx: string | null = null;
-    if (skill.price > 0) {
-      // Record escrow — funds are earmarked from platform balance
+
+    if (skill.price > 0 && isX402Enabled()) {
+      const headers = request.headers as Record<string, string | string[] | undefined>;
+      const paymentHeader = extractPaymentHeader(headers);
+
+      if (!paymentHeader) {
+        // Return 402 — client must pay escrow upfront
+        const { data: owner } = await db.from('agents')
+          .select('wallet_address').eq('id', skill.owner_id).single();
+        const payTo = owner?.wallet_address || '';
+        const resourceUrl = `${request.protocol}://${request.hostname}/contracts`;
+
+        const { status, body } = await createPaymentRequired(skill.price, payTo, resourceUrl);
+        return reply.status(status).send(body);
+      }
+
+      // Verify and settle escrow payment
+      const { data: owner } = await db.from('agents')
+        .select('wallet_address').eq('id', skill.owner_id).single();
+      const payTo = owner?.wallet_address || '';
+      const resourceUrl = `${request.protocol}://${request.hostname}/contracts`;
+
+      const { requirements } = await createPaymentRequired(skill.price, payTo, resourceUrl);
+      const settlement = await verifyAndSettle(paymentHeader, requirements);
+
+      if (!settlement.success) {
+        return reply.status(402).send({ error: 'Escrow payment failed', details: settlement.error });
+      }
+      escrowTx = settlement.txHash;
+    } else if (skill.price > 0) {
+      // Legacy escrow marker
       escrowTx = `escrow:${Date.now()}:${skill.price}`;
     }
 
@@ -50,6 +79,16 @@ export async function contractRoutes(app: FastifyInstance) {
     }).select().single();
 
     if (error) return reply.status(500).send({ error: error.message });
+
+    // Add PAYMENT-RESPONSE header if x402 was used
+    if (escrowTx && !escrowTx.startsWith('escrow:')) {
+      reply.header('PAYMENT-RESPONSE', encodePaymentResponse({
+        success: true,
+        transaction: escrowTx,
+        network: process.env.X402_NETWORK || 'solana-devnet',
+      }));
+    }
+
     return reply.status(201).send(formatContract(data));
   });
 
@@ -104,8 +143,16 @@ export async function contractRoutes(app: FastifyInstance) {
     }
 
     // Output validated — release escrow to provider
+    // If x402 escrow was used, the payment already went through on-chain.
+    // For legacy escrow, settle via AgentWallet.
     let txSignature: string | null = null;
-    if (contract.price > 0) {
+    const isX402Escrow = contract.escrow_tx && !contract.escrow_tx.startsWith('escrow:');
+
+    if (isX402Escrow) {
+      // x402 escrow already settled on-chain during contract creation
+      txSignature = contract.escrow_tx;
+    } else if (contract.price > 0) {
+      // Legacy: settle via AgentWallet
       const { data: provider } = await db.from('agents')
         .select('wallet_address').eq('id', contract.provider_id).single();
       if (provider?.wallet_address) {
@@ -141,7 +188,12 @@ export async function contractRoutes(app: FastifyInstance) {
       contractId: id, status: 'settled', output: result.output,
       validated: true, executionTimeMs: result.executionTimeMs,
       executionHash: proof.executionHash,
-      payment: { amount: contract.price, txSignature, settled: !!txSignature },
+      payment: {
+        method: isX402Escrow ? 'x402' : (txSignature ? 'agent-wallet' : 'none'),
+        amount: contract.price,
+        txSignature,
+        settled: !!txSignature,
+      },
     };
   });
 
@@ -226,10 +278,15 @@ export async function contractRoutes(app: FastifyInstance) {
     // If contract was settled, payment stands. If escrowed, release to provider.
     let txSignature: string | null = contract.settle_tx;
     if (contract.status === 'escrowed' && contract.price > 0 && !txSignature) {
-      const { data: provider } = await db.from('agents')
-        .select('wallet_address').eq('id', contract.provider_id).single();
-      if (provider?.wallet_address) {
-        txSignature = await settlePayment(provider.wallet_address, contract.price);
+      const isX402Escrow = contract.escrow_tx && !contract.escrow_tx.startsWith('escrow:');
+      if (isX402Escrow) {
+        txSignature = contract.escrow_tx;
+      } else {
+        const { data: provider } = await db.from('agents')
+          .select('wallet_address').eq('id', contract.provider_id).single();
+        if (provider?.wallet_address) {
+          txSignature = await settlePayment(provider.wallet_address, contract.price);
+        }
       }
     }
 

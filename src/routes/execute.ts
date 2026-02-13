@@ -3,6 +3,8 @@ import { getDb } from '../db';
 import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
+import { isX402Payment } from '../wallet';
+import { isX402Enabled, extractPaymentHeader, createPaymentRequired, verifyAndSettle, encodePaymentResponse } from '../x402';
 import { computeExecutionHash } from '../proof';
 
 export async function executeRoutes(app: FastifyInstance) {
@@ -18,6 +20,48 @@ export async function executeRoutes(app: FastifyInstance) {
 
     const { data: caller } = await db.from('agents').select('*').eq('id', callerId).single();
     if (!caller) return reply.status(404).send({ error: 'Caller agent not found' });
+
+    // -- x402 Payment Gate --
+    // If skill has a price, check for x402 payment before executing
+    let x402TxHash: string | null = null;
+    let x402Requirements: any = null;
+
+    if (skill.price > 0 && isX402Enabled()) {
+      const headers = request.headers as Record<string, string | string[] | undefined>;
+      const paymentHeader = extractPaymentHeader(headers);
+
+      if (!paymentHeader) {
+        // No payment header — return 402 Payment Required
+        const { data: owner } = await db.from('agents')
+          .select('wallet_address').eq('id', skill.owner_id).single();
+        const payTo = owner?.wallet_address || '';
+        const resourceUrl = `${request.protocol}://${request.hostname}/execute/${skillId}`;
+
+        const { status, body, requirements } = await createPaymentRequired(
+          skill.price, payTo, resourceUrl,
+        );
+        return reply.status(status).send(body);
+      }
+
+      // Payment header present — verify and settle via facilitator
+      const { data: owner } = await db.from('agents')
+        .select('wallet_address').eq('id', skill.owner_id).single();
+      const payTo = owner?.wallet_address || '';
+      const resourceUrl = `${request.protocol}://${request.hostname}/execute/${skillId}`;
+
+      // Re-create requirements for verification (must match what was sent in 402)
+      const { requirements } = await createPaymentRequired(skill.price, payTo, resourceUrl);
+      x402Requirements = requirements;
+
+      const settlement = await verifyAndSettle(paymentHeader, requirements);
+      if (!settlement.success) {
+        return reply.status(402).send({
+          error: 'Payment failed',
+          details: settlement.error,
+        });
+      }
+      x402TxHash = settlement.txHash;
+    }
 
     // Create execution record
     const { data: execution } = await db.from('executions').insert({
@@ -65,8 +109,10 @@ export async function executeRoutes(app: FastifyInstance) {
     const outputValidation = validateOutput(skill.output_schema, result.output);
 
     // Step 4: Settle payment
-    let txSignature: string | null = null;
-    if (outputValidation.valid && skill.price > 0) {
+    let txSignature: string | null = x402TxHash;
+
+    // If x402 was not used (disabled or free skill), fall back to AgentWallet
+    if (!txSignature && outputValidation.valid && skill.price > 0 && !isX402Enabled()) {
       const { data: owner } = await db.from('agents')
         .select('wallet_address').eq('id', skill.owner_id).single();
       if (owner?.wallet_address) {
@@ -108,6 +154,15 @@ export async function executeRoutes(app: FastifyInstance) {
       }).eq('id', skill.owner_id);
     }
 
+    // Add PAYMENT-RESPONSE header if x402 was used
+    if (x402TxHash) {
+      reply.header('PAYMENT-RESPONSE', encodePaymentResponse({
+        success: true,
+        transaction: x402TxHash,
+        network: process.env.X402_NETWORK || 'solana-devnet',
+      }));
+    }
+
     return {
       executionId,
       status: 'success',
@@ -115,7 +170,12 @@ export async function executeRoutes(app: FastifyInstance) {
         inputValidation: { valid: true },
         execution: { success: true, executionTimeMs: result.executionTimeMs },
         outputValidation: { valid: outputValidation.valid, errors: outputValidation.errors },
-        payment: { amount: skill.price, txSignature, settled: !!txSignature },
+        payment: {
+          method: x402TxHash ? 'x402' : (txSignature ? 'agent-wallet' : 'none'),
+          amount: skill.price,
+          txSignature,
+          settled: !!txSignature,
+        },
       },
       output: result.output,
       validated: outputValidation.valid,

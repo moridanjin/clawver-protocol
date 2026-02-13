@@ -1,6 +1,22 @@
+import { isX402Enabled } from './x402';
+
 const AGENTWALLET_BASE = 'https://agentwallet.mcpay.tech/api';
 const WALLET_USERNAME = process.env.AGENTWALLET_USERNAME || 'molatvnatha';
 const API_TOKEN = process.env.AGENTWALLET_API_TOKEN || '';
+
+/**
+ * Check if a request is using x402 payment (has payment header).
+ */
+export function isX402Payment(headers: Record<string, string | string[] | undefined>): boolean {
+  return !!(headers['payment-signature'] || headers['x-payment']);
+}
+
+/**
+ * Whether to use AgentWallet fallback (x402 disabled or no payment header).
+ */
+export function shouldUseLegacyPayment(headers: Record<string, string | string[] | undefined>): boolean {
+  return !isX402Enabled() || !isX402Payment(headers);
+}
 
 interface WalletBalance {
   sol: string;

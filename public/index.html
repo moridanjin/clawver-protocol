@@ -268,7 +268,7 @@ var bs58=(function(){
         <div class="phase-num">Phase 4</div>
         <div class="phase-icon">&#x1f4b0;</div>
         <h4>Payment Settlement</h4>
-        <p>Automatic SOL transfer via AgentWallet only after successful validation</p>
+        <p>x402 USDC micropayment via PayAI facilitator, settled on-chain after validation</p>
       </div>
     </div>
   </div>
@@ -316,7 +316,12 @@ var bs58=(function(){
         <!-- Step 3: Execute -->
         <div class="demo-step" id="step-2">
           <p style="color:var(--text-muted);margin-bottom:12px">Bob executes Alice's skill. Watch all 4 pipeline phases execute in real time.</p>
-          <div class="pipeline" id="pipeline-demo">
+          <div class="pipeline" id="pipeline-demo" style="grid-template-columns:repeat(5,1fr)">
+            <div class="pipeline-phase" id="phase-x402">
+              <div class="phase-num">x402</div>
+              <div class="phase-icon">&#x1f4b3;</div>
+              <h4>Payment</h4>
+            </div>
             <div class="pipeline-phase" id="phase-0">
               <div class="phase-num">Phase 1</div>
               <div class="phase-icon">&#x1f50d;</div>
@@ -335,7 +340,7 @@ var bs58=(function(){
             <div class="pipeline-phase" id="phase-3">
               <div class="phase-num">Phase 4</div>
               <div class="phase-icon">&#x1f4b0;</div>
-              <h4>Payment</h4>
+              <h4>Settle</h4>
             </div>
           </div>
           <label style="font-size:13px;color:var(--text-dim);display:block;margin-bottom:4px">Input text for summarization:</label>
@@ -410,8 +415,8 @@ var bs58=(function(){
         </div>
         <div class="step-label" style="color:var(--purple)">Step 4</div>
         <h4>Get Paid Automatically</h4>
-        <p>Payment in SOL settles only after output passes validation. Skill owners earn on every successful execution &mdash; no failed runs, no wasted funds.</p>
-        <div class="step-detail"><code>AgentWallet</code> &mdash; Solana devnet SOL, auto-settled</div>
+        <p>USDC micropayment via x402 settles on-chain only after output passes validation. Caller pays skill owner directly &mdash; no platform intermediary.</p>
+        <div class="step-detail"><code>x402</code> &mdash; USDC micropayments via PayAI facilitator</div>
       </div>
 
     </div>
@@ -427,7 +432,7 @@ var bs58=(function(){
       <a class="link-pill" href="/health" target="_blank">&#x1f4e1; API</a>
     </div>
     <p style="margin-top:16px">Built for the <strong>Colosseum Agent Hackathon</strong> (Feb 2026) by <strong>moridanjin</strong></p>
-    <p style="margin-top:4px;font-size:12px;color:var(--text-dim)">Powered by Solana &middot; AgentWallet</p>
+    <p style="margin-top:4px;font-size:12px;color:var(--text-dim)">Powered by Solana &middot; x402 &middot; PayAI</p>
   </div>
 </footer>
 
@@ -457,14 +462,14 @@ function signHeaders(keypair) {
 }
 
 // ---- API helpers (with Ed25519 signing) ----
-async function post(url, data, keypair) {
+async function post(url, data, keypair, extraHeaders) {
   const authHeaders = keypair ? signHeaders(keypair) : {};
   const res = await fetch(API + url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    headers: { 'Content-Type': 'application/json', ...authHeaders, ...(extraHeaders || {}) },
     body: JSON.stringify(data),
   });
-  return { status: res.status, data: await res.json() };
+  return { status: res.status, data: await res.json(), headers: res.headers };
 }
 
 async function get(url) {
@@ -695,65 +700,95 @@ async function executeSkill() {
   btn.innerHTML = '<span class="spinner"></span> Executing pipeline...';
 
   // Reset pipeline phases
-  for (let i = 0; i < 4; i++) {
-    const el = document.getElementById(`phase-${i}`);
-    el.classList.remove('active', 'success', 'fail');
-  }
+  ['phase-x402','phase-0','phase-1','phase-2','phase-3'].forEach(id => {
+    document.getElementById(id).classList.remove('active', 'success', 'fail');
+  });
 
   log('log-3', `POST /execute/${state.skill.id}`, 'info');
   log('log-3', `  Signing as Bob (caller) | Input: ${inputText.length} chars`, 'info');
 
-  // Animate phases sequentially
-  const phaseLabels = ['Input Validation', 'Sandboxed Execution', 'Output Validation', 'Payment Settlement'];
-
-  async function animatePhase(idx) {
+  // Animate phases
+  async function animatePhase(id, label) {
     return new Promise(resolve => {
-      document.getElementById(`phase-${idx}`).classList.add('active');
-      log('log-3', `\u25b6 Phase ${idx+1}: ${phaseLabels[idx]}...`, 'info');
+      document.getElementById(id).classList.add('active');
+      log('log-3', `\u25b6 ${label}...`, 'info');
       setTimeout(resolve, 400);
     });
   }
 
   try {
-    // Start phase animation concurrently with API call
-    const apiCall = post(`/execute/${state.skill.id}`, {
+    // x402 Phase: First request may return 402 Payment Required
+    await animatePhase('phase-x402', 'x402: Requesting payment terms');
+
+    let res = await post(`/execute/${state.skill.id}`, {
       input: { text: inputText },
     }, BOB_KEYPAIR);
 
-    await animatePhase(0);
-    await animatePhase(1);
+    if (res.status === 402) {
+      // Got 402 — show payment requirements
+      log('log-3', '\u2713 HTTP 402: Payment Required (x402 protocol)', 'ok');
+      const accepts = res.data.accepts || [];
+      if (accepts.length > 0) {
+        log('log-3', `  Amount: ${accepts[0].amount} | Asset: USDC | PayTo: ${(accepts[0].payTo || '').slice(0,8)}...`, 'info');
+      }
+      document.getElementById('phase-x402').classList.remove('active');
+      document.getElementById('phase-x402').classList.add('success');
 
-    const res = await apiCall;
+      // For demo: create a mock payment signature and retry
+      // In production, the client would sign a real Solana USDC transfer
+      log('log-3', '  Signing payment transaction (demo mode)...', 'info');
+      const mockPayload = {
+        x402Version: 2,
+        scheme: 'exact',
+        network: accepts[0]?.network || 'solana-devnet',
+        payload: { transaction: btoa('demo-signed-tx-' + Date.now()) },
+        resource: API + `/execute/${state.skill.id}`,
+      };
+      const paymentHeader = btoa(JSON.stringify(mockPayload));
+
+      log('log-3', `  Retrying with PAYMENT-SIGNATURE header...`, 'info');
+      res = await post(`/execute/${state.skill.id}`, {
+        input: { text: inputText },
+      }, BOB_KEYPAIR, { 'PAYMENT-SIGNATURE': paymentHeader });
+    } else {
+      // No 402 — x402 might be disabled or skill is free
+      document.getElementById('phase-x402').classList.remove('active');
+      document.getElementById('phase-x402').classList.add(res.status === 200 ? 'success' : 'fail');
+      log('log-3', res.status === 200 ? '\u2713 x402: No payment required (free skill or x402 disabled)' : '\u2713 x402: Skipped', 'ok');
+    }
+
     state.execution = res.data;
 
     // Complete remaining phases visually
     if (res.data.status === 'success') {
-      // Mark phase 0 and 1 as success
+      await animatePhase('phase-0', 'Phase 1: Input Validation');
       document.getElementById('phase-0').classList.remove('active');
       document.getElementById('phase-0').classList.add('success');
       log('log-3', '\u2713 Phase 1: Input validated', 'ok');
 
+      await animatePhase('phase-1', 'Phase 2: Sandboxed Execution');
       document.getElementById('phase-1').classList.remove('active');
       document.getElementById('phase-1').classList.add('success');
       log('log-3', `\u2713 Phase 2: Executed in ${res.data.phases.execution.executionTimeMs}ms`, 'ok');
 
-      await animatePhase(2);
+      await animatePhase('phase-2', 'Phase 3: Output Validation');
       document.getElementById('phase-2').classList.remove('active');
       document.getElementById('phase-2').classList.add(res.data.phases.outputValidation.valid ? 'success' : 'fail');
       log('log-3', `\u2713 Phase 3: Output ${res.data.phases.outputValidation.valid ? 'valid' : 'INVALID'}`, res.data.phases.outputValidation.valid ? 'ok' : 'err');
 
-      await animatePhase(3);
+      await animatePhase('phase-3', 'Phase 4: Payment Settlement');
       document.getElementById('phase-3').classList.remove('active');
       document.getElementById('phase-3').classList.add(res.data.phases.payment.settled ? 'success' : 'fail');
-      log('log-3', `\u2713 Phase 4: Payment ${res.data.phases.payment.settled ? 'settled' : 'skipped'} (${res.data.phases.payment.amount} lamports)`, res.data.phases.payment.settled ? 'ok' : 'info');
+      const method = res.data.phases.payment.method || 'agent-wallet';
+      log('log-3', `\u2713 Phase 4: Payment ${res.data.phases.payment.settled ? 'settled' : 'skipped'} via ${method} (${res.data.phases.payment.amount} lamports)`, res.data.phases.payment.settled ? 'ok' : 'info');
 
     } else {
       // Failure case
-      for (let i = 0; i < 4; i++) {
-        document.getElementById(`phase-${i}`).classList.remove('active');
-      }
-      const failPhase = res.data.phase === 'input_validation' ? 0 : res.data.phase === 'execution' ? 1 : 2;
-      document.getElementById(`phase-${failPhase}`).classList.add('fail');
+      ['phase-0','phase-1','phase-2','phase-3'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+      });
+      const failPhase = res.data.phase === 'input_validation' ? 'phase-0' : res.data.phase === 'execution' ? 'phase-1' : 'phase-2';
+      document.getElementById(failPhase).classList.add('fail');
       log('log-3', `\u2717 Failed at phase: ${res.data.phase}`, 'err');
     }
 
@@ -776,9 +811,9 @@ async function executeSkill() {
     }, 400);
   } catch (e) {
     log('log-3', `\u2717 Error: ${e.message}`, 'err');
-    for (let i = 0; i < 4; i++) {
-      document.getElementById(`phase-${i}`).classList.remove('active');
-    }
+    ['phase-x402','phase-0','phase-1','phase-2','phase-3'].forEach(id => {
+      document.getElementById(id).classList.remove('active');
+    });
     btn.disabled = false;
     btn.innerHTML = 'Retry';
   }
@@ -812,7 +847,7 @@ function showResults() {
       <div class="result-card">
         <div class="result-label">Payment</div>
         <div class="result-value">${ex.phases?.payment?.amount || 0} lamports</div>
-        <div class="result-detail">${ex.phases?.payment?.settled ? 'Settled via AgentWallet' : 'Not settled'}</div>
+        <div class="result-detail">${ex.phases?.payment?.settled ? ('Settled via ' + (ex.phases?.payment?.method || 'agent-wallet')) : 'Not settled'}</div>
       </div>
     </div>
     ${output.summary ? `
@@ -870,10 +905,9 @@ function resetDemo() {
   document.getElementById('log-3').style.display = 'none';
 
   // Reset pipeline phases
-  for (let i = 0; i < 4; i++) {
-    const el = document.getElementById(`phase-${i}`);
-    el.classList.remove('active', 'success', 'fail');
-  }
+  ['phase-x402','phase-0','phase-1','phase-2','phase-3'].forEach(id => {
+    document.getElementById(id).classList.remove('active', 'success', 'fail');
+  });
 
   // Remove extra "Next" buttons
   document.querySelectorAll('.btn-group').forEach(g => {
