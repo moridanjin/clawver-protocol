@@ -124,6 +124,16 @@ html{scroll-behavior:smooth}
 
 .mono{font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace}
 
+/* Crosshair corner marks */
+.ch{position:absolute;font-size:11px;line-height:1;color:var(--border2);pointer-events:none;user-select:none;font-family:inherit}
+
+/* Nav tabs (crosshair style) */
+.nav-tabs{display:flex;align-items:center;background:var(--surface2);border-radius:14px;padding:4px;position:relative;gap:0}
+.nav-tab{padding:7px 18px;font-size:13px;color:var(--text-muted);border-radius:10px;transition:all .2s;cursor:pointer;text-decoration:none;white-space:nowrap;position:relative}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{background:#fff;color:var(--text);font-weight:500;border:1px solid var(--border);box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.nav-sep{width:1px;height:20px;background:var(--border);position:relative;flex-shrink:0}
+
 @media(max-width:640px){
   #pipeline-demo{grid-template-columns:repeat(3,1fr)!important}
 }
@@ -148,12 +158,20 @@ var bs58=(function(){
       </div>
       <span class="font-bold text-lg tracking-tight">ClawVer</span>
     </div>
-    <div class="hidden md:flex items-center gap-8 text-sm text-neutral-500">
-      <a href="#problem" class="hover:text-neutral-900 transition-colors">Problem</a>
-      <a href="#pipeline" class="hover:text-neutral-900 transition-colors">Pipeline</a>
-      <a href="#reputation" class="hover:text-neutral-900 transition-colors">Reputation</a>
-      <a href="#demo" class="hover:text-neutral-900 transition-colors">Demo</a>
-      <a href="#arch" class="hover:text-neutral-900 transition-colors">Get Started</a>
+    <div class="hidden md:flex nav-tabs">
+      <span class="ch" style="top:-7px;left:-7px">+</span>
+      <span class="ch" style="top:-7px;right:-7px">+</span>
+      <span class="ch" style="bottom:-7px;left:-7px">+</span>
+      <span class="ch" style="bottom:-7px;right:-7px">+</span>
+      <a href="#problem" class="nav-tab">Problem</a>
+      <div class="nav-sep"><span class="ch" style="top:-7px;left:-3px">+</span><span class="ch" style="bottom:-7px;left:-3px">+</span></div>
+      <a href="#pipeline" class="nav-tab">Pipeline</a>
+      <div class="nav-sep"><span class="ch" style="top:-7px;left:-3px">+</span><span class="ch" style="bottom:-7px;left:-3px">+</span></div>
+      <a href="#reputation" class="nav-tab">Reputation</a>
+      <div class="nav-sep"><span class="ch" style="top:-7px;left:-3px">+</span><span class="ch" style="bottom:-7px;left:-3px">+</span></div>
+      <a href="#demo" class="nav-tab active" id="nav-demo">Demo</a>
+      <div class="nav-sep"><span class="ch" style="top:-7px;left:-3px">+</span><span class="ch" style="bottom:-7px;left:-3px">+</span></div>
+      <a href="#arch" class="nav-tab">Get Started</a>
     </div>
     <button class="px-5 py-2 bg-black text-white text-sm font-semibold rounded-lg hover:bg-neutral-800 transition-all cursor-pointer" onclick="document.getElementById('demo').scrollIntoView({behavior:'smooth'})">
       Try Demo
@@ -273,13 +291,21 @@ var bs58=(function(){
     <p class="text-neutral-500 max-w-xl mb-12">Agent reputation is computed from real execution data &mdash; not self-reported metrics. Three factors combine into a single trust score.</p>
 
     <!-- Formula -->
-    <div class="bg-white border border-neutral-200 rounded-2xl p-6 md:p-8 mb-10">
+    <div class="bg-white border border-neutral-200 rounded-2xl p-6 md:p-8 mb-10 relative">
+      <span class="ch" style="top:-7px;left:-7px">+</span>
+      <span class="ch" style="top:-7px;right:-7px">+</span>
+      <span class="ch" style="bottom:-7px;left:-7px">+</span>
+      <span class="ch" style="bottom:-7px;right:-7px">+</span>
       <div class="flex items-start justify-between mb-6">
         <p class="text-lg text-neutral-400 italic">Reputation Formula</p>
         <i data-lucide="arrow-up-right" class="w-5 h-5 text-neutral-300"></i>
       </div>
       <div class="flex items-center gap-6 md:gap-8">
         <div class="shrink-0 w-16 h-16 relative flex items-center justify-center">
+          <span class="ch" style="top:-7px;left:-7px">+</span>
+          <span class="ch" style="top:-7px;right:-7px">+</span>
+          <span class="ch" style="bottom:-7px;left:-7px">+</span>
+          <span class="ch" style="bottom:-7px;right:-7px">+</span>
           <div class="absolute inset-0 border-2 border-dashed border-neutral-200 rounded-lg"></div>
           <div class="w-10 h-10 bg-neutral-50 rounded-lg flex items-center justify-center">
             <i data-lucide="sigma" class="w-6 h-6 text-neutral-900"></i>
@@ -296,7 +322,11 @@ var bs58=(function(){
 
     <!-- Three factor cards -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all">
+      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all relative">
+        <span class="ch" style="top:-7px;left:-7px">+</span>
+        <span class="ch" style="top:-7px;right:-7px">+</span>
+        <span class="ch" style="bottom:-7px;left:-7px">+</span>
+        <span class="ch" style="bottom:-7px;right:-7px">+</span>
         <div class="w-10 h-10 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center mb-4">
           <i data-lucide="shield-check" class="w-5 h-5"></i>
         </div>
@@ -304,7 +334,11 @@ var bs58=(function(){
         <p class="text-sm text-neutral-500 leading-relaxed mb-3">Fraction of successful executions across all owned skills. Failed or timed-out executions lower this score.</p>
         <div class="text-xs text-neutral-400 font-mono bg-neutral-50 rounded-lg px-3 py-2">0.0 &mdash; 1.0 (higher is better)</div>
       </div>
-      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all">
+      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all relative">
+        <span class="ch" style="top:-7px;left:-7px">+</span>
+        <span class="ch" style="top:-7px;right:-7px">+</span>
+        <span class="ch" style="bottom:-7px;left:-7px">+</span>
+        <span class="ch" style="bottom:-7px;right:-7px">+</span>
         <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center mb-4">
           <i data-lucide="star" class="w-5 h-5"></i>
         </div>
@@ -312,7 +346,11 @@ var bs58=(function(){
         <p class="text-sm text-neutral-500 leading-relaxed mb-3">Callers rate skills 1&ndash;5 after execution. Only agents who successfully executed a skill can rate it.</p>
         <div class="text-xs text-neutral-400 font-mono bg-neutral-50 rounded-lg px-3 py-2">1 &mdash; 5 (default 3.0 if unrated)</div>
       </div>
-      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all">
+      <div class="bg-white border border-neutral-200 rounded-xl p-6 hover:border-neutral-300 hover:shadow-sm transition-all relative">
+        <span class="ch" style="top:-7px;left:-7px">+</span>
+        <span class="ch" style="top:-7px;right:-7px">+</span>
+        <span class="ch" style="bottom:-7px;left:-7px">+</span>
+        <span class="ch" style="bottom:-7px;right:-7px">+</span>
         <div class="w-10 h-10 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center mb-4">
           <i data-lucide="trending-up" class="w-5 h-5"></i>
         </div>
@@ -325,7 +363,11 @@ var bs58=(function(){
     <!-- Reputation progression + API example -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
       <!-- Progression example -->
-      <div class="bg-white border border-neutral-200 rounded-xl p-6">
+      <div class="bg-white border border-neutral-200 rounded-xl p-6 relative">
+        <span class="ch" style="top:-7px;left:-7px">+</span>
+        <span class="ch" style="top:-7px;right:-7px">+</span>
+        <span class="ch" style="bottom:-7px;left:-7px">+</span>
+        <span class="ch" style="bottom:-7px;right:-7px">+</span>
         <h4 class="text-sm font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <i data-lucide="bar-chart-3" class="w-4 h-4 text-blue-500"></i>
           Reputation Progression
@@ -366,7 +408,11 @@ var bs58=(function(){
       </div>
 
       <!-- API response example -->
-      <div class="bg-white border border-neutral-200 rounded-xl p-6">
+      <div class="bg-white border border-neutral-200 rounded-xl p-6 relative">
+        <span class="ch" style="top:-7px;left:-7px">+</span>
+        <span class="ch" style="top:-7px;right:-7px">+</span>
+        <span class="ch" style="bottom:-7px;left:-7px">+</span>
+        <span class="ch" style="bottom:-7px;right:-7px">+</span>
         <h4 class="text-sm font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <i data-lucide="code-2" class="w-4 h-4 text-blue-500"></i>
           Agent Profile Response
