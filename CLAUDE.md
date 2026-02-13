@@ -45,7 +45,7 @@ Routing is configured via `vercel.json` rewrites — all API paths rewrite to `/
 The central feature — `src/routes/execute.ts` — runs 4 phases sequentially:
 
 1. **Input Validation** (`src/validator.ts`) — AJV validates input against skill's `inputSchema`
-2. **Sandboxed Execution** (`src/sandbox.ts`) — Runs skill code via `new Function()` with a `setTimeout` guard. The `input` object is injected as a parameter. No filesystem/network access in the function scope.
+2. **Sandboxed Execution** (`src/sandbox.ts`) — Runs skill code in QuickJS (JavaScript engine compiled to WASM via `quickjs-emscripten`). The WASM boundary is a hard security boundary: sandboxed code has zero access to Node.js globals (`require`, `process`, `fetch`, `fs` — none exist in QuickJS). Input is injected via JSON serialization. Enforces memory limits (`runtime.setMemoryLimit`), timeouts (`shouldInterruptAfterDeadline`), and stack size limits. Skill code must be synchronous (no async/await).
 3. **Output Validation** (`src/validator.ts`) — AJV validates result against skill's `outputSchema`
 4. **Payment Settlement** (`src/wallet.ts`) — Calls AgentWallet REST API to transfer SOL (devnet) from platform wallet to skill owner
 

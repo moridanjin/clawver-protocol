@@ -1,3 +1,5 @@
+import { getQuickJS, shouldInterruptAfterDeadline, QuickJSWASMModule } from 'quickjs-emscripten';
+
 export interface SandboxResult {
   success: boolean;
   output: unknown;
@@ -5,63 +7,94 @@ export interface SandboxResult {
   executionTimeMs: number;
 }
 
+// Cache the WASM module — expensive to load, reuse across invocations
+let cachedModule: QuickJSWASMModule | null = null;
+
+async function getModule(): Promise<QuickJSWASMModule> {
+  if (!cachedModule) {
+    cachedModule = await getQuickJS();
+  }
+  return cachedModule;
+}
+
 export async function executeSandboxed(
   code: string,
   input: unknown,
   timeoutMs: number = 5000,
-  _maxMemoryMb: number = 64
+  maxMemoryMb: number = 64
 ): Promise<SandboxResult> {
   const startTime = Date.now();
 
-  return new Promise<SandboxResult>((resolve) => {
-    const timer = setTimeout(() => {
-      resolve({
-        success: false,
-        output: null,
-        error: `Execution timed out after ${timeoutMs}ms`,
-        executionTimeMs: Date.now() - startTime,
-      });
-    }, timeoutMs);
+  try {
+    const QuickJS = await getModule();
+    const runtime = QuickJS.newRuntime();
 
     try {
-      // Wrap skill code in an async function with input available
-      const wrappedCode = `
-        return (async function() {
-          const input = __input__;
-          ${code}
-        })();
-      `;
+      // Configure resource limits
+      runtime.setMemoryLimit(maxMemoryMb * 1024 * 1024);
+      runtime.setMaxStackSize(1024 * 1024); // 1MB stack
+      runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + timeoutMs));
 
-      const fn = new Function('__input__', wrappedCode);
-      const resultPromise = fn(input);
+      const context = runtime.newContext();
 
-      Promise.resolve(resultPromise)
-        .then((output: unknown) => {
-          clearTimeout(timer);
-          resolve({
-            success: true,
-            output,
-            error: null,
-            executionTimeMs: Date.now() - startTime,
-          });
-        })
-        .catch((err: any) => {
-          clearTimeout(timer);
-          resolve({
+      try {
+        // Wrap skill code in IIFE so `return` statements work.
+        // Input is injected as JSON — no Node.js globals exist in QuickJS.
+        const wrappedCode = `(function() {
+  const input = ${JSON.stringify(input)};
+  ${code}
+})();`;
+
+        const result = context.evalCode(wrappedCode);
+
+        if (result.error) {
+          const errorVal = context.dump(result.error);
+          result.error.dispose();
+
+          const errorMessage =
+            typeof errorVal === 'object' && errorVal !== null && 'message' in errorVal
+              ? (errorVal as any).message
+              : String(errorVal);
+
+          const isTimeout = errorMessage.includes('interrupted');
+          const isMemory =
+            errorMessage.includes('memory') ||
+            errorMessage.includes('allocation') ||
+            errorMessage.includes('out of memory');
+
+          return {
             success: false,
             output: null,
-            error: err.message || String(err),
+            error: isTimeout
+              ? `Execution timed out after ${timeoutMs}ms`
+              : isMemory
+                ? `Memory limit exceeded (${maxMemoryMb}MB)`
+                : `Sandbox error: ${errorMessage}`,
             executionTimeMs: Date.now() - startTime,
-          });
-        });
-    } catch (err: any) {
-      clearTimeout(timer);
-      resolve({
-        success: false,
-        output: null,
-        error: err.message || String(err),
-        executionTimeMs: Date.now() - startTime,
-      });
+          };
+        }
+
+        const output = context.dump(result.value);
+        result.value.dispose();
+
+        return {
+          success: true,
+          output,
+          error: null,
+          executionTimeMs: Date.now() - startTime,
+        };
+      } finally {
+        context.dispose();
+      }
+    } finally {
+      runtime.dispose();
     }
-  });
+  } catch (err: any) {
+    return {
+      success: false,
+      output: null,
+      error: err.message || String(err),
+      executionTimeMs: Date.now() - startTime,
+    };
+  }
 }
