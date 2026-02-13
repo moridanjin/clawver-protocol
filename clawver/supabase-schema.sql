@@ -41,6 +41,8 @@ CREATE TABLE executions (
   error TEXT,
   tx_signature TEXT,
   execution_hash TEXT,
+  proof_signature TEXT,
+  proof_tx TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
@@ -56,6 +58,8 @@ CREATE TABLE contracts (
   status TEXT NOT NULL DEFAULT 'created',
   escrow_tx TEXT,
   settle_tx TEXT,
+  execution_hash TEXT,
+  proof_signature TEXT,
   validation_result JSONB,
   escrowed_at TIMESTAMPTZ,
   dispute_reason TEXT,
@@ -67,6 +71,17 @@ CREATE TABLE contracts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- UNIQUE constraint on wallet_address (prevents duplicate agent registrations)
+CREATE UNIQUE INDEX idx_agents_wallet_address ON agents(wallet_address);
+
+-- Performance indexes
+CREATE INDEX idx_executions_skill_id ON executions(skill_id);
+CREATE INDEX idx_executions_caller_id ON executions(caller_id);
+CREATE INDEX idx_skills_owner_id ON skills(owner_id);
+CREATE INDEX idx_contracts_client_id ON contracts(client_id);
+CREATE INDEX idx_contracts_provider_id ON contracts(provider_id);
+CREATE INDEX idx_contracts_status ON contracts(status);
 
 -- Disable RLS for hackathon demo (allow anon key full access)
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
@@ -101,3 +116,16 @@ BEGIN
   UPDATE agents SET reputation = reputation + amount WHERE id = agent_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Migration script (run on existing databases — all additive, safe to re-run)
+-- ALTER TABLE executions ADD COLUMN IF NOT EXISTS proof_signature TEXT;
+-- ALTER TABLE executions ADD COLUMN IF NOT EXISTS proof_tx TEXT;
+-- ALTER TABLE contracts ADD COLUMN IF NOT EXISTS execution_hash TEXT;
+-- ALTER TABLE contracts ADD COLUMN IF NOT EXISTS proof_signature TEXT;
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_wallet_address ON agents(wallet_address);
+-- CREATE INDEX IF NOT EXISTS idx_executions_skill_id ON executions(skill_id);
+-- CREATE INDEX IF NOT EXISTS idx_executions_caller_id ON executions(caller_id);
+-- CREATE INDEX IF NOT EXISTS idx_skills_owner_id ON skills(owner_id);
+-- CREATE INDEX IF NOT EXISTS idx_contracts_client_id ON contracts(client_id);
+-- CREATE INDEX IF NOT EXISTS idx_contracts_provider_id ON contracts(provider_id);
+-- CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);

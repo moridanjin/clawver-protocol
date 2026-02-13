@@ -25,6 +25,7 @@
     "@remotion/google-fonts": "4.0.421",
     "@remotion/studio": "4.0.421",
     "@remotion/transitions": "4.0.421",
+    "@solana/web3.js": "^1.98.0",
     "@supabase/supabase-js": "^2.49.1",
     "ajv": "^8.17.1",
     "bs58": "^5.0.0",

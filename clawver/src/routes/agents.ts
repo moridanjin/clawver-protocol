@@ -35,7 +35,13 @@ export async function agentRoutes(app: FastifyInstance) {
       .select()
       .single();
 
-    if (error) return reply.status(500).send({ error: error.message });
+    if (error) {
+      // Handle unique constraint violation on wallet_address
+      if (error.code === '23505') {
+        return reply.status(409).send({ error: 'Agent already registered for this wallet' });
+      }
+      return reply.status(500).send({ error: error.message });
+    }
     return reply.status(201).send(formatAgent(data));
   });
 

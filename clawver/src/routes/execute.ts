@@ -5,7 +5,8 @@ import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
 import { isX402Payment } from '../wallet';
 import { isX402Enabled, extractPaymentHeader, createPaymentRequired, verifyAndSettle, encodePaymentResponse } from '../x402';
-import { computeExecutionHash } from '../proof';
+import { computeExecutionHash, signExecutionProof, getServerPublicKey, verifyProofSignature } from '../proof';
+import { isAnchorEnabled, anchorProofOnChain } from '../solana';
 
 export async function executeRoutes(app: FastifyInstance) {
   app.post('/execute/:skillId', async (request, reply) => {
@@ -120,12 +121,13 @@ export async function executeRoutes(app: FastifyInstance) {
       }
     }
 
-    // Step 5: Compute execution proof hash
+    // Step 5: Compute execution proof hash + server signature
     const completedAt = new Date().toISOString();
     const proof = computeExecutionHash(
       executionId, skillId, callerId,
       input || {}, result.output, completedAt,
     );
+    const signedProof = signExecutionProof(proof.executionHash);
 
     // Step 6: Update records
     await db.from('executions').update({
@@ -134,8 +136,19 @@ export async function executeRoutes(app: FastifyInstance) {
       execution_time_ms: result.executionTimeMs,
       tx_signature: txSignature,
       execution_hash: proof.executionHash,
+      proof_signature: signedProof?.signature || null,
       completed_at: completedAt,
     }).eq('id', executionId);
+
+    // Fire-and-forget on-chain anchor (never blocks the response)
+    if (isAnchorEnabled()) {
+      anchorProofOnChain(proof.executionHash).then((proofTx) => {
+        if (proofTx) {
+          db.from('executions').update({ proof_tx: proofTx }).eq('id', executionId)
+            .then(() => {});
+        }
+      });
+    }
 
     // Atomic counter increments (no read-then-write race conditions)
     await db.rpc('increment_execution_count', { p_skill_id: skillId });
@@ -170,7 +183,13 @@ export async function executeRoutes(app: FastifyInstance) {
       },
       output: result.output,
       validated: outputValidation.valid,
-      executionHash: proof.executionHash,
+      proof: {
+        executionHash: proof.executionHash,
+        signature: signedProof?.signature || null,
+        serverPublicKey: signedProof?.serverPublicKey || null,
+        proofTx: null, // populated async if anchor enabled
+        anchorEnabled: isAnchorEnabled(),
+      },
     };
   });
 
@@ -188,6 +207,8 @@ export async function executeRoutes(app: FastifyInstance) {
       validated: data.validated, executionTimeMs: data.execution_time_ms,
       error: data.error, txSignature: data.tx_signature,
       executionHash: data.execution_hash,
+      proofSignature: data.proof_signature || null,
+      proofTx: data.proof_tx || null,
       createdAt: data.created_at, completedAt: data.completed_at,
     };
   });
@@ -215,10 +236,21 @@ export async function executeRoutes(app: FastifyInstance) {
       data.input, data.output, data.completed_at,
     );
 
-    const verified = proof.executionHash === data.execution_hash;
+    const hashVerified = proof.executionHash === data.execution_hash;
+
+    // Verify server signature if present
+    let signatureVerified: boolean | null = null;
+    const serverPubKey = getServerPublicKey();
+    if (data.proof_signature && serverPubKey) {
+      signatureVerified = verifyProofSignature(
+        data.execution_hash, data.proof_signature, serverPubKey,
+      );
+    }
 
     return {
-      verified,
+      verified: hashVerified && (signatureVerified !== false),
+      hashVerified,
+      signatureVerified,
       executionId: data.id,
       executionHash: data.execution_hash,
       recomputedHash: proof.executionHash,
@@ -229,6 +261,9 @@ export async function executeRoutes(app: FastifyInstance) {
         outputHash: proof.outputHash,
         timestamp: proof.timestamp,
       },
+      proofSignature: data.proof_signature || null,
+      serverPublicKey: serverPubKey,
+      proofTx: data.proof_tx || null,
       txSignature: data.tx_signature,
     };
   });

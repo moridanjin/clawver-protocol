@@ -4,7 +4,36 @@ import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
 import { isX402Enabled, extractPaymentHeader, createPaymentRequired, verifyAndSettle, encodePaymentResponse } from '../x402';
-import { computeExecutionHash } from '../proof';
+import { computeExecutionHash, signExecutionProof } from '../proof';
+import { isAnchorEnabled, anchorProofOnChain } from '../solana';
+
+/**
+ * Attempt to refund the client for a disputed contract.
+ * - AgentWallet (legacy): actual SOL transfer back to client
+ * - x402: record refund obligation (can't reverse on-chain without escrow program)
+ * Returns the refund_tx string to store in the DB.
+ */
+async function attemptRefund(contract: any): Promise<string | null> {
+  const isX402Escrow = contract.escrow_tx && !contract.escrow_tx.startsWith('escrow:');
+
+  if (isX402Escrow) {
+    // x402 settled on-chain — record obligation for off-chain resolution
+    return `x402:refund_obligation:${contract.id}:${contract.price}`;
+  }
+
+  if (contract.price > 0) {
+    // Legacy AgentWallet — attempt actual refund to client
+    const db = getDb();
+    const { data: client } = await db.from('agents')
+      .select('wallet_address').eq('id', contract.client_id).single();
+    if (client?.wallet_address) {
+      const tx = await settlePayment(client.wallet_address, contract.price);
+      return tx;
+    }
+  }
+
+  return null;
+}
 
 export async function contractRoutes(app: FastifyInstance) {
 
@@ -160,18 +189,26 @@ export async function contractRoutes(app: FastifyInstance) {
       }
     }
 
-    // Compute execution proof
+    // Compute execution proof + server signature
     const completedAt = new Date().toISOString();
     const proof = computeExecutionHash(
       id, contract.skill_id, contract.client_id,
       contract.input, result.output, completedAt,
     );
+    const signedProof = signExecutionProof(proof.executionHash);
 
     await db.from('contracts').update({
       output: result.output, validation_result: validation,
       status: 'settled', settle_tx: txSignature,
+      execution_hash: proof.executionHash,
+      proof_signature: signedProof?.signature || null,
       updated_at: completedAt,
     }).eq('id', id);
+
+    // Fire-and-forget on-chain anchor
+    if (isAnchorEnabled()) {
+      anchorProofOnChain(proof.executionHash).then(() => {});
+    }
 
     // Atomic counter increments
     await db.rpc('increment_reputation', { agent_id: contract.provider_id, amount: 1 });
@@ -180,7 +217,11 @@ export async function contractRoutes(app: FastifyInstance) {
     return {
       contractId: id, status: 'settled', output: result.output,
       validated: true, executionTimeMs: result.executionTimeMs,
-      executionHash: proof.executionHash,
+      proof: {
+        executionHash: proof.executionHash,
+        signature: signedProof?.signature || null,
+        serverPublicKey: signedProof?.serverPublicKey || null,
+      },
       payment: {
         method: isX402Escrow ? 'x402' : (txSignature ? 'agent-wallet' : 'none'),
         amount: contract.price,
@@ -230,10 +271,13 @@ export async function contractRoutes(app: FastifyInstance) {
 
     // If re-execution fails → client wins, refund
     if (!reExecution.success) {
+      const refundTx = await attemptRefund(contract);
+
       await db.from('contracts').update({
         status: 'refunded',
         resolution: 'client_wins',
         resolution_reason: `Re-execution failed: ${reExecution.error}`,
+        refund_tx: refundTx,
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', id);
@@ -243,6 +287,7 @@ export async function contractRoutes(app: FastifyInstance) {
         status: 'refunded',
         resolution: 'client_wins',
         reason: `Re-execution failed: ${reExecution.error}`,
+        refundTx: refundTx,
       };
     }
 
@@ -251,10 +296,13 @@ export async function contractRoutes(app: FastifyInstance) {
 
     if (!validation.valid) {
       // Output doesn't validate → client wins, refund
+      const refundTx = await attemptRefund(contract);
+
       await db.from('contracts').update({
         status: 'refunded',
         resolution: 'client_wins',
         resolution_reason: `Re-execution output invalid: ${validation.errors?.join(', ')}`,
+        refund_tx: refundTx,
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', id);
@@ -264,6 +312,7 @@ export async function contractRoutes(app: FastifyInstance) {
         status: 'refunded',
         resolution: 'client_wins',
         reason: `Re-execution output failed validation`,
+        refundTx: refundTx,
       };
     }
 
@@ -353,6 +402,8 @@ function formatContract(c: any) {
     price: c.price, status: c.status,
     escrowTx: c.escrow_tx, escrowedAt: c.escrowed_at,
     settleTx: c.settle_tx,
+    executionHash: c.execution_hash || null,
+    proofSignature: c.proof_signature || null,
     validationResult: c.validation_result,
     disputeReason: c.dispute_reason, disputedAt: c.disputed_at,
     resolution: c.resolution, resolutionReason: c.resolution_reason,
