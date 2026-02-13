@@ -40,6 +40,7 @@ CREATE TABLE executions (
   execution_time_ms INTEGER,
   error TEXT,
   tx_signature TEXT,
+  execution_hash TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
 );
@@ -56,6 +57,13 @@ CREATE TABLE contracts (
   escrow_tx TEXT,
   settle_tx TEXT,
   validation_result JSONB,
+  escrowed_at TIMESTAMPTZ,
+  dispute_reason TEXT,
+  disputed_at TIMESTAMPTZ,
+  resolution TEXT,
+  resolution_reason TEXT,
+  resolved_at TIMESTAMPTZ,
+  refund_tx TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -70,3 +78,26 @@ CREATE POLICY "Allow all on agents" ON agents FOR ALL USING (true) WITH CHECK (t
 CREATE POLICY "Allow all on skills" ON skills FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on executions" ON executions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on contracts" ON contracts FOR ALL USING (true) WITH CHECK (true);
+
+-- Atomic counter RPC functions (avoid read-then-write race conditions)
+
+CREATE OR REPLACE FUNCTION increment_execution_count(p_skill_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE skills SET execution_count = execution_count + 1 WHERE id = p_skill_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION increment_skills_executed(p_agent_id UUID)
+RETURNS void AS $$
+BEGIN
+  UPDATE agents SET skills_executed = skills_executed + 1 WHERE id = p_agent_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION increment_reputation(agent_id UUID, amount REAL)
+RETURNS void AS $$
+BEGIN
+  UPDATE agents SET reputation = reputation + amount WHERE id = agent_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
