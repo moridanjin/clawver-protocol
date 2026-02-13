@@ -1,5 +1,6 @@
 node_modules/
 dist/
+out/
 .env
 *.db
 *.db-wal
@@ -7,6 +8,13 @@ dist/
 .DS_Store
 .mcp.json
 .vercel
+
+# Local-only directories (not part of ClawVer repo)
+clawver/
+docs/
+skills/
+video/
+skill.md
 
 # AI tool configs
 .agent/

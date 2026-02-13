@@ -5,36 +5,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository Structure
 
 ```
-solana-agent/
-├── CLAUDE.md                  # This file (repo-level instructions)
-├── skill.md                   # Skill authoring guide
-├── skills/                    # Agent skill definitions
-│   ├── pm-agent/
-│   ├── prd/
-│   ├── explainer-video-guide/
-│   ├── frontend-ui-ux/
-│   ├── agentation/
-│   └── solana-dev/
-├── video/                     # Remotion explainer video
-├── docs/                      # Documentation (PRD, analysis, etc.)
-└── clawver/                   # ClawVer Protocol application
-    ├── src/                   # Core server source code
-    ├── api/                   # Vercel serverless entry point
-    ├── public/                # Landing page (static HTML)
-    ├── sdk/                   # ClawVer TypeScript SDK
-    ├── dist/                  # Build output
-    ├── package.json
-    ├── tsconfig.json
-    ├── vercel.json
-    └── supabase-schema.sql
+clawver-protocol/
+├── CLAUDE.md                  # This file
+├── src/                       # Core server source code
+│   ├── routes/                # Fastify route handlers
+│   ├── proof.ts               # Execution proofs (SHA-256 hash + Ed25519 signing)
+│   ├── solana.ts              # Solana connection + on-chain Memo anchor
+│   ├── sandbox.ts             # QuickJS WASM sandbox
+│   ├── auth.ts                # Ed25519 wallet auth plugin
+│   ├── x402.ts                # x402 USDC payment gate
+│   ├── wallet.ts              # AgentWallet legacy payment
+│   ├── validator.ts           # AJV JSON Schema validation
+│   └── db.ts                  # Supabase client singleton
+├── api/                       # Vercel serverless entry point
+├── public/                    # Landing page (static HTML)
+├── sdk/                       # ClawVer TypeScript SDK
+├── dist/                      # Build output
+├── package.json
+├── tsconfig.json
+├── vercel.json
+└── supabase-schema.sql
 ```
 
 ## Build & Run
 
-All commands run from the `clawver/` directory:
-
 ```bash
-cd clawver
 npm run build          # TypeScript compile (tsc) → dist/
 npm run dev            # Local dev server with hot reload (tsx watch src/index.ts) on :3000
 npm start              # Run compiled output (node dist/index.js)
@@ -45,7 +40,7 @@ No test runner is configured. No linter is configured.
 
 ## Environment Variables
 
-Required in `clawver/.env` (never commit):
+Required in `.env` (never commit):
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` — Supabase PostgreSQL connection
 - `AGENTWALLET_API_TOKEN` — AgentWallet payment API (legacy fallback)
 - `AGENTWALLET_USERNAME` — defaults to `molatvnatha`
@@ -54,10 +49,13 @@ Required in `clawver/.env` (never commit):
 - `X402_NETWORK` — `solana-devnet` (default) or `solana`
 - `X402_FACILITATOR_URL` — PayAI facilitator URL (default: `https://facilitator.payai.network`)
 - `X402_TREASURY_ADDRESS` — Fallback treasury Solana wallet address
+- `SERVER_SIGNING_KEY` — Base58 Solana keypair for Ed25519 proof signing (optional, proofs unsigned if unset)
+- `SOLANA_PROOF_ANCHOR` — Set `true` to anchor proofs on-chain via Memo tx (default: disabled)
+- `SOLANA_RPC_URL` — Solana RPC endpoint (default: `https://api.devnet.solana.com`)
 
 ## Architecture
 
-**Fastify API server** deployed as a single Vercel serverless function. All API routes are handled by one function (`clawver/api/index.ts`) that creates a Fastify app and uses `app.inject()` to route Vercel requests internally.
+**Fastify API server** deployed as a single Vercel serverless function. All API routes are handled by one function (`api/index.ts`) that creates a Fastify app and uses `app.inject()` to route Vercel requests internally.
 
 ### Request Flow (Vercel)
 
@@ -82,9 +80,10 @@ The central feature — `src/routes/execute.ts` — runs phases sequentially:
 1. **Input Validation** (`src/validator.ts`) — AJV validates input against skill's `inputSchema`
 2. **Sandboxed Execution** (`src/sandbox.ts`) — Runs skill code in QuickJS (JavaScript engine compiled to WASM via `quickjs-emscripten`). The WASM boundary is a hard security boundary: sandboxed code has zero access to Node.js globals (`require`, `process`, `fetch`, `fs` — none exist in QuickJS). Input is injected via JSON serialization. Enforces memory limits (`runtime.setMemoryLimit`), timeouts (`shouldInterruptAfterDeadline`), and stack size limits. Skill code must be synchronous (no async/await).
 3. **Output Validation** (`src/validator.ts`) — AJV validates result against skill's `outputSchema`
-4. **Payment Settlement** — x402 settlement (already completed in phase 0) or AgentWallet fallback (`src/wallet.ts`) if x402 is disabled
+4. **Proof Signing** (`src/proof.ts`) — SHA-256 execution hash + Ed25519 server signature. Optional fire-and-forget on-chain Memo anchor (`src/solana.ts`).
+5. **Payment Settlement** — x402 settlement (already completed in phase 0) or AgentWallet fallback (`src/wallet.ts`) if x402 is disabled
 
-Contracts (`src/routes/contracts.ts`) follow the same pipeline but through a two-step create→deliver flow. Contract creation supports x402 escrow (client pays upfront via x402, payment settles on-chain).
+Contracts (`src/routes/contracts.ts`) follow the same pipeline but through a two-step create→deliver flow. Contract creation supports x402 escrow (client pays upfront via x402, payment settles on-chain). Disputes trigger auto-resolution with refund support.
 
 ### Payment System (x402 + AgentWallet)
 
@@ -106,6 +105,19 @@ Server → PayAI facilitator verifies → settles on-chain → executes → retu
 
 **Deps:** `x402-solana` (PayAI x402 implementation), `@solana/web3.js`, `@solana/spl-token`
 
+### Execution Proofs
+
+`src/proof.ts` — Cryptographic proof of execution integrity.
+
+**How it works:**
+1. SHA-256 hash of canonical execution data (executionId, skillId, callerId, input, output, timestamp)
+2. Ed25519 server signature on the hash (using `SERVER_SIGNING_KEY`)
+3. Optional on-chain Memo anchor (`src/solana.ts`) — `clawver:proof:v1:{hash}` written to Solana
+
+**Verification:** `GET /executions/:id/verify` recomputes hash and verifies server signature. Returns `hashVerified` + `signatureVerified`.
+
+**Server public key:** Exposed at `GET /health` → `proofSigning.serverPublicKey` for third-party verification.
+
 ### Data Layer
 
 `src/db.ts` exports a singleton Supabase client. All route handlers call `getDb()` and query Supabase tables directly (no ORM). Tables: `agents`, `skills`, `executions`, `contracts`. Column names are snake_case in DB, camelCase in API responses (each route file has a `format*` function).
@@ -126,13 +138,13 @@ Server → PayAI facilitator verifies → settles on-chain → executes → retu
 - Signed (wallet proof, no agent lookup): POST /agents
 - Protected (wallet proof + agent lookup): POST /skills, /execute/:skillId, /contracts, /contracts/:id/deliver
 
-**Demo mode:** Landing page uses a hardcoded devnet demo keypair so hackathon judges can try the full pipeline without needing their own wallet. The demo keypair auto-signs all requests in the browser.
+**Demo mode:** Landing page generates random devnet keypairs so anyone can try the full pipeline without needing their own wallet.
 
 **Deps:** `tweetnacl` (Ed25519 verify, CJS), `bs58` v5 (base58 decode, CJS)
 
 ### Landing Page
 
-`public/index.html` is a single-file HTML/CSS/JS page (no build step, no dependencies). It makes real `fetch()` calls to the same-origin API to demo the full pipeline interactively. Uses a demo keypair for auth signing (devnet only).
+`public/index.html` is a single-file HTML/CSS/JS page (no build step, no dependencies). It makes real `fetch()` calls to the same-origin API to demo the full pipeline interactively. Uses generated keypairs for auth signing (devnet only).
 
 ## Colosseum Hackathon Context
 
