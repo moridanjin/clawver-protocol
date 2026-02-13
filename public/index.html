@@ -656,7 +656,7 @@ async function registerSkill() {
         required: ['summary', 'wordCount'],
       },
       code: skillCode,
-      price: 1000,
+      price: 0,
       timeoutMs: 5000,
       maxMemoryMb: 64,
     }, ALICE_KEYPAIR);
@@ -756,6 +756,16 @@ async function executeSkill() {
       res = await post(`/execute/${state.skill.id}`, {
         input: { text: inputText },
       }, BOB_KEYPAIR, { 'PAYMENT-SIGNATURE': paymentHeader });
+
+      if (res.status !== 200) {
+        // x402 retry failed — mock payment can't be verified
+        log('log-3', `\u2717 Payment verification failed (demo mode — real USDC tx required in production)`, 'err');
+        document.getElementById('phase-x402').classList.remove('success');
+        document.getElementById('phase-x402').classList.add('fail');
+        btn.disabled = false;
+        btn.innerHTML = 'Retry';
+        return;
+      }
     } else {
       // No 402 — x402 might be disabled or skill is free
       document.getElementById('phase-x402').classList.remove('active');
@@ -789,13 +799,20 @@ async function executeSkill() {
       log('log-3', `\u2713 Phase 4: Payment ${res.data.phases.payment.settled ? 'settled' : 'skipped'} via ${method} (${res.data.phases.payment.amount} lamports)`, res.data.phases.payment.settled ? 'ok' : 'info');
 
     } else {
-      // Failure case
-      ['phase-0','phase-1','phase-2','phase-3'].forEach(id => {
-        document.getElementById(id).classList.remove('active');
-      });
-      const failPhase = res.data.phase === 'input_validation' ? 'phase-0' : res.data.phase === 'execution' ? 'phase-1' : 'phase-2';
-      document.getElementById(failPhase).classList.add('fail');
-      log('log-3', `\u2717 Failed at phase: ${res.data.phase}`, 'err');
+      // Failure case — color phases before the fail point green
+      const phaseIds = ['phase-0','phase-1','phase-2','phase-3'];
+      const failIndex = res.data.phase === 'input_validation' ? 0 : res.data.phase === 'execution' ? 1 : 2;
+
+      for (let i = 0; i < phaseIds.length; i++) {
+        const el = document.getElementById(phaseIds[i]);
+        el.classList.remove('active');
+        if (i < failIndex) {
+          el.classList.add('success');
+        } else if (i === failIndex) {
+          el.classList.add('fail');
+        }
+      }
+      log('log-3', `\u2717 Failed at phase: ${res.data.phase || res.data.error || 'unknown'}`, 'err');
     }
 
     document.getElementById('exec-result').innerHTML = `
