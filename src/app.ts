@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { authPlugin } from './auth';
 import { healthRoutes } from './routes/health';
 import { agentRoutes } from './routes/agents';
 import { skillRoutes } from './routes/skills';
@@ -10,6 +11,7 @@ export function buildApp() {
   const app = Fastify({ logger: true });
 
   app.register(cors, { origin: true });
+  app.register(authPlugin);
   app.register(healthRoutes);
   app.register(agentRoutes);
   app.register(skillRoutes);

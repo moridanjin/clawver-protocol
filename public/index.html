@@ -172,7 +172,18 @@ footer a{color:var(--text-muted)}
 .links-row{display:flex;gap:16px;justify-content:center;margin-top:24px;flex-wrap:wrap}
 .link-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:var(--surface);border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--text-muted);transition:all .2s}
 .link-pill:hover{border-color:var(--border2);color:var(--text);text-decoration:none}
+/* Auth badge */
+.auth-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:600;background:var(--green-dim);color:var(--green);border:1px solid rgba(16,185,129,.2);margin-left:8px;vertical-align:middle}
+.auth-badge svg{width:12px;height:12px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl-fast.min.js"></script>
+<script>
+// Minimal Base58 encoder (Bitcoin/Solana alphabet)
+var bs58=(function(){
+  var ALPHABET='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  return{encode:function(source){if(!source.length)return'';var digits=[0];for(var i=0;i<source.length;++i){var carry=source[i];for(var j=0;j<digits.length;++j){carry+=digits[j]<<8;digits[j]=carry%58;carry=(carry/58)|0;}while(carry){digits.push(carry%58);carry=(carry/58)|0;}}var str='';for(var k=0;source[k]===0&&k<source.length-1;++k)str+=ALPHABET[0];for(var q=digits.length-1;q>=0;--q)str+=ALPHABET[digits[q]];return str;}};
+})();
+</script>
 </head>
 <body>
 
@@ -182,6 +193,7 @@ footer a{color:var(--text-muted)}
     <div class="hero-badge">
       <span class="dot" id="status-dot"></span>
       <span id="status-text">Checking API...</span>
+      <span class="auth-badge" id="auth-badge" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Ed25519 Auth</span>
     </div>
     <h1>ClawVer Protocol</h1>
     <p class="tagline">Trust Infrastructure for the Agent Economy &mdash; verified execution, sandboxed skills, and automated payment settlement.</p>
@@ -423,11 +435,33 @@ footer a{color:var(--text-muted)}
 const API = window.location.origin;
 const state = { alice: null, bob: null, skill: null, execution: null, step: 0 };
 
-// ---- API helpers ----
-async function post(url, data) {
+// ---- Demo Keypairs (devnet only — safe to expose) ----
+const ALICE_KEYPAIR = nacl.sign.keyPair();
+const BOB_KEYPAIR = nacl.sign.keyPair();
+
+function getWalletAddress(keypair) { return bs58.encode(keypair.publicKey); }
+
+// ---- Auth Signing ----
+function signHeaders(keypair) {
+  const walletAddress = getWalletAddress(keypair);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const message = `clawver:v1:${walletAddress}:${timestamp}`;
+  const messageBytes = new TextEncoder().encode(message);
+  const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
+  const signatureBase64 = btoa(String.fromCharCode(...signature));
+  return {
+    'X-Wallet-Address': walletAddress,
+    'X-Signature': signatureBase64,
+    'X-Timestamp': timestamp,
+  };
+}
+
+// ---- API helpers (with Ed25519 signing) ----
+async function post(url, data, keypair) {
+  const authHeaders = keypair ? signHeaders(keypair) : {};
   const res = await fetch(API + url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
     body: JSON.stringify(data),
   });
   return { status: res.status, data: await res.json() };
@@ -437,6 +471,16 @@ async function get(url) {
   const res = await fetch(API + url);
   return { status: res.status, data: await res.json() };
 }
+
+// Show auth badge
+try {
+  if (typeof nacl !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const badge = document.getElementById('auth-badge');
+      if (badge) badge.style.display = 'inline-flex';
+    });
+  }
+} catch(e) {}
 
 // ---- Health check ----
 async function checkHealth() {
@@ -514,20 +558,20 @@ async function registerAgents() {
   log('log-1', 'POST /agents \u2014 Registering Alice (skill provider)...', 'info');
 
   try {
+    log('log-1', `  Signing with Ed25519: ${getWalletAddress(ALICE_KEYPAIR).slice(0,8)}...`, 'info');
     const alice = await post('/agents', {
       name: 'Alice (Skill Provider)',
       description: 'Provides verified text processing skills',
-      walletAddress: '32uR1rrfvGfBX8k6KKhwbSJCfaE5rimB5DoTMoi7FMLW',
-    });
+    }, ALICE_KEYPAIR);
     state.alice = alice.data;
     log('log-1', `\u2713 Alice registered: ${alice.data.id}`, 'ok');
 
     log('log-1', 'POST /agents \u2014 Registering Bob (client)...', 'info');
+    log('log-1', `  Signing with Ed25519: ${getWalletAddress(BOB_KEYPAIR).slice(0,8)}...`, 'info');
     const bob = await post('/agents', {
       name: 'Bob (Client)',
       description: 'Purchases and executes skills from other agents',
-      walletAddress: 'BobWa11etXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-    });
+    }, BOB_KEYPAIR);
     state.bob = bob.data;
     log('log-1', `\u2713 Bob registered: ${bob.data.id}`, 'ok');
 
@@ -571,6 +615,7 @@ async function registerSkill() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Registering skill...';
   log('log-2', 'POST /skills \u2014 Registering Text Summarizer...', 'info');
+  log('log-2', `  Signing as Alice (skill owner)`, 'info');
 
   const skillCode = `
     const words = input.text.split(/\\s+/).filter(w => w.length > 0);
@@ -585,7 +630,6 @@ async function registerSkill() {
     const res = await post('/skills', {
       name: 'Text Summarizer',
       description: 'Extracts key sentences and counts words. Verified input/output schemas ensure reliable results.',
-      ownerId: state.alice.id,
       version: '1.0.0',
       inputSchema: {
         type: 'object',
@@ -604,7 +648,7 @@ async function registerSkill() {
       price: 1000,
       timeoutMs: 5000,
       maxMemoryMb: 64,
-    });
+    }, ALICE_KEYPAIR);
 
     state.skill = res.data;
     log('log-2', `\u2713 Skill registered: ${res.data.id}`, 'ok');
@@ -657,7 +701,7 @@ async function executeSkill() {
   }
 
   log('log-3', `POST /execute/${state.skill.id}`, 'info');
-  log('log-3', `  Caller: ${state.bob.id} | Input: ${inputText.length} chars`, 'info');
+  log('log-3', `  Signing as Bob (caller) | Input: ${inputText.length} chars`, 'info');
 
   // Animate phases sequentially
   const phaseLabels = ['Input Validation', 'Sandboxed Execution', 'Output Validation', 'Payment Settlement'];
@@ -673,9 +717,8 @@ async function executeSkill() {
   try {
     // Start phase animation concurrently with API call
     const apiCall = post(`/execute/${state.skill.id}`, {
-      callerId: state.bob.id,
       input: { text: inputText },
-    });
+    }, BOB_KEYPAIR);
 
     await animatePhase(0);
     await animatePhase(1);

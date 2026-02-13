@@ -6,21 +6,20 @@ import { settlePayment } from '../wallet';
 
 export async function contractRoutes(app: FastifyInstance) {
   app.post('/contracts', async (request, reply) => {
-    const { clientId, providerId, skillId, input } = request.body as any;
+    const { providerId, skillId, input } = request.body as any;
+    const clientId = request.authAgent!.id;
 
-    if (!clientId || !providerId || !skillId) {
-      return reply.status(400).send({ error: 'clientId, providerId, and skillId are required' });
+    if (!providerId || !skillId) {
+      return reply.status(400).send({ error: 'providerId and skillId are required' });
     }
 
     const db = getDb();
 
-    const [{ data: client }, { data: provider }, { data: skill }] = await Promise.all([
-      db.from('agents').select('id').eq('id', clientId).single(),
+    const [{ data: provider }, { data: skill }] = await Promise.all([
       db.from('agents').select('id').eq('id', providerId).single(),
       db.from('skills').select('*').eq('id', skillId).single(),
     ]);
 
-    if (!client) return reply.status(404).send({ error: 'Client agent not found' });
     if (!provider) return reply.status(404).send({ error: 'Provider agent not found' });
     if (!skill) return reply.status(404).send({ error: 'Skill not found' });
 
@@ -47,6 +46,12 @@ export async function contractRoutes(app: FastifyInstance) {
 
     const { data: contract } = await db.from('contracts').select('*').eq('id', id).single();
     if (!contract) return reply.status(404).send({ error: 'Contract not found' });
+
+    // Only the provider can deliver
+    if (contract.provider_id !== request.authAgent!.id) {
+      return reply.status(403).send({ error: 'Only the contract provider can deliver' });
+    }
+
     if (contract.status !== 'created' && contract.status !== 'escrowed') {
       return reply.status(400).send({ error: `Contract is in '${contract.status}' status, cannot deliver` });
     }

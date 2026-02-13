@@ -7,11 +7,8 @@ import { settlePayment } from '../wallet';
 export async function executeRoutes(app: FastifyInstance) {
   app.post('/execute/:skillId', async (request, reply) => {
     const { skillId } = request.params as any;
-    const { callerId, input } = request.body as any;
-
-    if (!callerId) {
-      return reply.status(400).send({ error: 'callerId is required' });
-    }
+    const { input } = request.body as any;
+    const callerId = request.authAgent!.id;
 
     const db = getDb();
 

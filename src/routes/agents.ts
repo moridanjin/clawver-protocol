@@ -3,13 +3,25 @@ import { getDb } from '../db';
 
 export async function agentRoutes(app: FastifyInstance) {
   app.post('/agents', async (request, reply) => {
-    const { name, description, walletAddress } = request.body as any;
+    const { name, description } = request.body as any;
+    const walletAddress = request.authAgent!.walletAddress;
 
-    if (!name || !walletAddress) {
-      return reply.status(400).send({ error: 'name and walletAddress are required' });
+    if (!name) {
+      return reply.status(400).send({ error: 'name is required' });
     }
 
     const db = getDb();
+
+    // Check duplicate wallet
+    const { data: existing } = await db.from('agents')
+      .select('id')
+      .eq('wallet_address', walletAddress)
+      .single();
+
+    if (existing) {
+      return reply.status(409).send({ error: 'Agent already registered for this wallet' });
+    }
+
     const { data, error } = await db.from('agents')
       .insert({ name, description: description || '', wallet_address: walletAddress })
       .select()

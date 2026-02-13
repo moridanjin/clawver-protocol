@@ -4,19 +4,18 @@ import { getDb } from '../db';
 export async function skillRoutes(app: FastifyInstance) {
   app.post('/skills', async (request, reply) => {
     const {
-      name, description, ownerId, version,
+      name, description, version,
       inputSchema, outputSchema, code, price,
       timeoutMs, maxMemoryMb,
     } = request.body as any;
 
-    if (!name || !ownerId || !code) {
-      return reply.status(400).send({ error: 'name, ownerId, and code are required' });
+    const ownerId = request.authAgent!.id;
+
+    if (!name || !code) {
+      return reply.status(400).send({ error: 'name and code are required' });
     }
 
     const db = getDb();
-
-    const { data: owner } = await db.from('agents').select('id').eq('id', ownerId).single();
-    if (!owner) return reply.status(404).send({ error: 'Owner agent not found' });
 
     const { data, error } = await db.from('skills').insert({
       name,
