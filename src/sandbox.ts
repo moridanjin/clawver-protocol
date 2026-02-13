@@ -74,8 +74,13 @@ export async function executeSandboxed(
           };
         }
 
-        const output = context.dump(result.value);
+        let output: unknown = context.dump(result.value);
         result.value.dispose();
+
+        // Skill code often returns JSON.stringify(...) — auto-parse string outputs
+        if (typeof output === 'string') {
+          try { output = JSON.parse(output); } catch {}
+        }
 
         return {
           success: true,
