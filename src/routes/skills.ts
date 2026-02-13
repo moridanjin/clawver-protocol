@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getDb } from '../db';
+import { recalculateReputation } from '../reputation';
 
 export async function skillRoutes(app: FastifyInstance) {
   app.post('/skills', async (request, reply) => {
@@ -79,6 +80,51 @@ export async function skillRoutes(app: FastifyInstance) {
     const { data, error } = await db.from('skills').select('*').eq('id', skillId).single();
     if (error || !data) return reply.status(404).send({ error: 'Skill not found' });
     return formatSkill(data);
+  });
+
+  // Rate a skill (1-5) — caller must have executed it successfully
+  app.post('/skills/:skillId/rate', async (request, reply) => {
+    const { skillId } = request.params as any;
+    const { rating } = request.body as any;
+    const callerId = request.authAgent!.id;
+
+    if (!rating || typeof rating !== 'number' || rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+      return reply.status(400).send({ error: 'rating must be an integer between 1 and 5' });
+    }
+
+    const db = getDb();
+
+    const { data: skill } = await db.from('skills').select('*').eq('id', skillId).single();
+    if (!skill) return reply.status(404).send({ error: 'Skill not found' });
+
+    // Verify caller has executed this skill successfully
+    const { count } = await db.from('executions')
+      .select('*', { count: 'exact', head: true })
+      .eq('skill_id', skillId)
+      .eq('caller_id', callerId)
+      .eq('status', 'success');
+
+    if (!count || count === 0) {
+      return reply.status(403).send({ error: 'You must successfully execute this skill before rating it' });
+    }
+
+    // Update avg_rating using exponential moving average (alpha=0.3)
+    const alpha = 0.3;
+    const newAvg = skill.avg_rating === 0
+      ? rating
+      : Math.round(((1 - alpha) * skill.avg_rating + alpha * rating) * 100) / 100;
+
+    await db.from('skills').update({ avg_rating: newAvg }).eq('id', skillId);
+
+    // Recalculate owner's reputation
+    const newReputation = await recalculateReputation(skill.owner_id);
+
+    return {
+      skillId,
+      rating,
+      newAvgRating: newAvg,
+      ownerReputation: newReputation,
+    };
   });
 }
 

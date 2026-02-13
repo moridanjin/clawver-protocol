@@ -7,6 +7,7 @@ import { isX402Payment } from '../wallet';
 import { isX402Enabled, extractPaymentHeader, createPaymentRequired, verifyAndSettle, encodePaymentResponse } from '../x402';
 import { computeExecutionHash, signExecutionProof, getServerPublicKey, verifyProofSignature } from '../proof';
 import { isAnchorEnabled, anchorProofOnChain } from '../solana';
+import { recalculateReputation } from '../reputation';
 
 export async function executeRoutes(app: FastifyInstance) {
   app.post('/execute/:skillId', async (request, reply) => {
@@ -154,9 +155,8 @@ export async function executeRoutes(app: FastifyInstance) {
     await db.rpc('increment_execution_count', { p_skill_id: skillId });
     await db.rpc('increment_skills_executed', { p_agent_id: callerId });
 
-    if (outputValidation.valid) {
-      await db.rpc('increment_reputation', { agent_id: skill.owner_id, amount: 1 });
-    }
+    // Recalculate owner reputation from real execution data
+    await recalculateReputation(skill.owner_id);
 
     // Add PAYMENT-RESPONSE header if x402 was used
     if (x402TxHash) {

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { getDb } from '../db';
+import { getReputationBreakdown } from '../reputation';
 
 export async function agentRoutes(app: FastifyInstance) {
   app.post('/agents', async (request, reply) => {
@@ -56,12 +57,16 @@ export async function agentRoutes(app: FastifyInstance) {
 
     if (error || !agent) return reply.status(404).send({ error: 'Agent not found' });
 
-    const { data: skills } = await db.from('skills')
-      .select('id, name, version, price, execution_count, avg_rating')
-      .eq('owner_id', agentId);
+    const [{ data: skills }, breakdown] = await Promise.all([
+      db.from('skills')
+        .select('id, name, version, price, execution_count, avg_rating')
+        .eq('owner_id', agentId),
+      getReputationBreakdown(agentId),
+    ]);
 
     return {
       ...formatAgent(agent),
+      reputationBreakdown: breakdown,
       skills: (skills || []).map((s: any) => ({
         id: s.id, name: s.name, version: s.version,
         price: s.price, executionCount: s.execution_count, avgRating: s.avg_rating,

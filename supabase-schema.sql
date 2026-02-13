@@ -117,7 +117,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Migration script (run on existing databases — all additive, safe to re-run)
+-- Migration v1: Proof columns + indexes (safe to re-run)
 -- ALTER TABLE executions ADD COLUMN IF NOT EXISTS proof_signature TEXT;
 -- ALTER TABLE executions ADD COLUMN IF NOT EXISTS proof_tx TEXT;
 -- ALTER TABLE contracts ADD COLUMN IF NOT EXISTS execution_hash TEXT;
@@ -129,3 +129,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- CREATE INDEX IF NOT EXISTS idx_contracts_client_id ON contracts(client_id);
 -- CREATE INDEX IF NOT EXISTS idx_contracts_provider_id ON contracts(provider_id);
 -- CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
+
+-- Migration v2: P2 Reputation System (optional, for per-execution ratings)
+-- ALTER TABLE executions ADD COLUMN IF NOT EXISTS caller_rating SMALLINT CHECK (caller_rating >= 1 AND caller_rating <= 5);
+-- CREATE INDEX IF NOT EXISTS idx_executions_caller_rating ON executions(caller_rating) WHERE caller_rating IS NOT NULL;
