@@ -15,13 +15,13 @@ solana-agent/
 │   ├── frontend-ui-ux/
 │   ├── agentation/
 │   └── solana-dev/
+├── video/                     # Remotion explainer video
+├── docs/                      # Documentation (PRD, analysis, etc.)
 └── clawver/                   # ClawVer Protocol application
     ├── src/                   # Core server source code
     ├── api/                   # Vercel serverless entry point
     ├── public/                # Landing page (static HTML)
     ├── sdk/                   # ClawVer TypeScript SDK
-    ├── video/                 # Remotion explainer video
-    ├── docs/                  # Documentation (PRD, analysis, etc.)
     ├── dist/                  # Build output
     ├── package.json
     ├── tsconfig.json
