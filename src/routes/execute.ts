@@ -3,6 +3,7 @@ import { getDb } from '../db';
 import { executeSandboxed } from '../sandbox';
 import { validateInput, validateOutput } from '../validator';
 import { settlePayment } from '../wallet';
+import { computeExecutionHash } from '../proof';
 
 export async function executeRoutes(app: FastifyInstance) {
   app.post('/execute/:skillId', async (request, reply) => {
@@ -73,13 +74,21 @@ export async function executeRoutes(app: FastifyInstance) {
       }
     }
 
-    // Step 5: Update records
+    // Step 5: Compute execution proof hash
+    const completedAt = new Date().toISOString();
+    const proof = computeExecutionHash(
+      executionId, skillId, callerId,
+      input || {}, result.output, completedAt,
+    );
+
+    // Step 6: Update records
     await db.from('executions').update({
       status: 'success', output: result.output,
       validated: outputValidation.valid,
       execution_time_ms: result.executionTimeMs,
       tx_signature: txSignature,
-      completed_at: new Date().toISOString(),
+      execution_hash: proof.executionHash,
+      completed_at: completedAt,
     }).eq('id', executionId);
 
     await db.from('skills').update({
@@ -110,9 +119,11 @@ export async function executeRoutes(app: FastifyInstance) {
       },
       output: result.output,
       validated: outputValidation.valid,
+      executionHash: proof.executionHash,
     };
   });
 
+  // Get execution details
   app.get('/executions/:executionId', async (request, reply) => {
     const { executionId } = request.params as any;
     const db = getDb();
@@ -125,7 +136,49 @@ export async function executeRoutes(app: FastifyInstance) {
       input: data.input, output: data.output, status: data.status,
       validated: data.validated, executionTimeMs: data.execution_time_ms,
       error: data.error, txSignature: data.tx_signature,
+      executionHash: data.execution_hash,
       createdAt: data.created_at, completedAt: data.completed_at,
+    };
+  });
+
+  // Verify execution proof — anyone can recompute the hash to verify integrity
+  app.get('/executions/:executionId/verify', async (request, reply) => {
+    const { executionId } = request.params as any;
+    const db = getDb();
+
+    const { data, error } = await db.from('executions').select('*').eq('id', executionId).single();
+    if (error || !data) return reply.status(404).send({ error: 'Execution not found' });
+
+    if (data.status !== 'success' || !data.execution_hash) {
+      return reply.status(400).send({
+        error: 'No proof available',
+        reason: data.status !== 'success'
+          ? 'Execution did not complete successfully'
+          : 'Execution predates proof system',
+      });
+    }
+
+    // Recompute hash from stored data
+    const proof = computeExecutionHash(
+      data.id, data.skill_id, data.caller_id,
+      data.input, data.output, data.completed_at,
+    );
+
+    const verified = proof.executionHash === data.execution_hash;
+
+    return {
+      verified,
+      executionId: data.id,
+      executionHash: data.execution_hash,
+      recomputedHash: proof.executionHash,
+      proof: {
+        skillId: proof.skillId,
+        callerId: proof.callerId,
+        inputHash: proof.inputHash,
+        outputHash: proof.outputHash,
+        timestamp: proof.timestamp,
+      },
+      txSignature: data.tx_signature,
     };
   });
 }
