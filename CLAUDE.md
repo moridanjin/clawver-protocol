@@ -2,9 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Repository Structure
+
+```
+solana-agent/
+├── CLAUDE.md                  # This file (repo-level instructions)
+├── skill.md                   # Skill authoring guide
+├── skills/                    # Agent skill definitions
+│   ├── pm-agent/
+│   ├── prd/
+│   ├── explainer-video-guide/
+│   ├── frontend-ui-ux/
+│   ├── agentation/
+│   └── solana-dev/
+└── clawver/                   # ClawVer Protocol application
+    ├── src/                   # Core server source code
+    ├── api/                   # Vercel serverless entry point
+    ├── public/                # Landing page (static HTML)
+    ├── sdk/                   # ClawVer TypeScript SDK
+    ├── video/                 # Remotion explainer video
+    ├── docs/                  # Documentation (PRD, analysis, etc.)
+    ├── dist/                  # Build output
+    ├── package.json
+    ├── tsconfig.json
+    ├── vercel.json
+    └── supabase-schema.sql
+```
+
 ## Build & Run
 
+All commands run from the `clawver/` directory:
+
 ```bash
+cd clawver
 npm run build          # TypeScript compile (tsc) → dist/
 npm run dev            # Local dev server with hot reload (tsx watch src/index.ts) on :3000
 npm start              # Run compiled output (node dist/index.js)
@@ -15,7 +45,7 @@ No test runner is configured. No linter is configured.
 
 ## Environment Variables
 
-Required in `.env` (never commit):
+Required in `clawver/.env` (never commit):
 - `SUPABASE_URL` / `SUPABASE_ANON_KEY` — Supabase PostgreSQL connection
 - `AGENTWALLET_API_TOKEN` — AgentWallet payment API (legacy fallback)
 - `AGENTWALLET_USERNAME` — defaults to `molatvnatha`
@@ -27,7 +57,7 @@ Required in `.env` (never commit):
 
 ## Architecture
 
-**Fastify API server** deployed as a single Vercel serverless function. All API routes are handled by one function (`api/index.ts`) that creates a Fastify app and uses `app.inject()` to route Vercel requests internally.
+**Fastify API server** deployed as a single Vercel serverless function. All API routes are handled by one function (`clawver/api/index.ts`) that creates a Fastify app and uses `app.inject()` to route Vercel requests internally.
 
 ### Request Flow (Vercel)
 

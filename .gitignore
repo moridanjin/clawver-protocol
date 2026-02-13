@@ -6,6 +6,7 @@ dist/
 *.db-shm
 .DS_Store
 .mcp.json
+.vercel
 
 # AI tool configs
 .agent/
@@ -35,4 +36,3 @@ dist/
 .trae/
 .windsurf/
 .zencoder/
-.vercel

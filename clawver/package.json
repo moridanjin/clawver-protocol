@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "video:studio": "remotion studio video/index.ts",
+    "video:render": "remotion render video/index.ts Explainer out/explainer.mp4 --codec h264 --crf 18"
   },
   "keywords": [
     "ai",
@@ -18,11 +20,16 @@
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@remotion/cli": "4.0.421",
+    "@remotion/google-fonts": "4.0.421",
+    "@remotion/studio": "4.0.421",
+    "@remotion/transitions": "4.0.421",
     "@supabase/supabase-js": "^2.49.1",
     "ajv": "^8.17.1",
     "bs58": "^5.0.0",
     "fastify": "^5.2.1",
     "quickjs-emscripten": "^0.31.0",
+    "remotion": "4.0.421",
     "tweetnacl": "^1.0.3",
     "uuid": "^11.0.5",
     "x402-solana": "^2.0.3"
@@ -30,6 +37,7 @@
   "devDependencies": {
     "@types/bs58": "^4.0.4",
     "@types/node": "^22.12.0",
+    "@types/react": "^19.2.14",
     "@types/uuid": "^10.0.0",
     "@vercel/node": "^5.6.2",
     "tsx": "^4.19.2",
