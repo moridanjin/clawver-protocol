@@ -440,6 +440,12 @@ var bs58=(function(){
 const API = window.location.origin;
 const state = { alice: null, bob: null, skill: null, execution: null, step: 0 };
 
+// Escape HTML to prevent XSS from API data
+function escapeHtml(str) {
+  if (typeof str !== 'string') str = String(str);
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ---- Demo Keypairs (devnet only — safe to expose) ----
 const ALICE_KEYPAIR = nacl.sign.keyPair();
 const BOB_KEYPAIR = nacl.sign.keyPair();
@@ -506,22 +512,26 @@ function log(logId, msg, type) {
   const el = document.getElementById(logId);
   el.style.display = 'block';
   const ts = new Date().toLocaleTimeString();
-  el.innerHTML += `<div class="log-entry"><span class="ts">${ts}</span><span class="${type || ''}">${msg}</span></div>`;
+  el.innerHTML += `<div class="log-entry"><span class="ts">${escapeHtml(ts)}</span><span class="${type || ''}">${escapeHtml(msg)}</span></div>`;
   el.scrollTop = el.scrollHeight;
 }
 
 // ---- JSON rendering ----
 function syntaxHighlight(obj) {
   const json = JSON.stringify(obj, null, 2);
-  return json.replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
+  // Escape HTML entities first, then apply syntax highlighting on the safe string
+  const escaped = escapeHtml(json);
+  return escaped.replace(/(&quot;(\\u[\da-fA-F]{4}|\\[^&]|[^\\&])*&quot;(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
     let cls = 'json-num';
-    if (/^"/.test(match)) {
+    if (/^&quot;/.test(match)) {
       if (/:$/.test(match)) {
         cls = 'json-key';
-        match = match.replace(/"/g, '').replace(/:$/, ':');
+        match = match.replace(/&quot;/g, '').replace(/:$/, ':');
         return `<span class="${cls}">"${match.slice(0,-1)}"${match.slice(-1)}</span>`;
       } else {
         cls = 'json-str';
+        // Restore quotes for display
+        match = '"' + match.replace(/&quot;/g, '') + '"';
       }
     } else if (/true|false/.test(match)) {
       cls = 'json-bool';
@@ -585,12 +595,12 @@ async function registerAgents() {
         <div class="agent-card">
           <div class="agent-name">Alice (Skill Provider)</div>
           <div class="agent-role">Provides skills &middot; Receives payment</div>
-          <div class="agent-id">ID: <span>${state.alice.id}</span></div>
+          <div class="agent-id">ID: <span>${escapeHtml(state.alice.id)}</span></div>
         </div>
         <div class="agent-card">
           <div class="agent-name">Bob (Client)</div>
           <div class="agent-role">Executes skills &middot; Pays for execution</div>
-          <div class="agent-id">ID: <span>${state.bob.id}</span></div>
+          <div class="agent-id">ID: <span>${escapeHtml(state.bob.id)}</span></div>
         </div>
       </div>
       ${jsonViewer({ alice: state.alice, bob: state.bob }, 'View API Response')}
@@ -661,13 +671,13 @@ async function registerSkill() {
 
     document.getElementById('skill-result').innerHTML = `
       <div class="skill-card fade-in">
-        <h4>${state.skill.name} <span class="skill-tag">v${state.skill.version}</span></h4>
+        <h4>${escapeHtml(state.skill.name)} <span class="skill-tag">v${escapeHtml(state.skill.version)}</span></h4>
         <div class="skill-meta">
-          <span>&#x1f4b0; ${state.skill.price} lamports</span>
-          <span>&#x23f1; ${state.skill.timeoutMs}ms timeout</span>
-          <span>&#x1f4be; ${state.skill.maxMemoryMb}MB memory</span>
+          <span>&#x1f4b0; ${escapeHtml(state.skill.price)} lamports</span>
+          <span>&#x23f1; ${escapeHtml(state.skill.timeoutMs)}ms timeout</span>
+          <span>&#x1f4be; ${escapeHtml(state.skill.maxMemoryMb)}MB memory</span>
         </div>
-        <p style="font-size:13px;color:var(--text-muted)">${state.skill.description}</p>
+        <p style="font-size:13px;color:var(--text-muted)">${escapeHtml(state.skill.description)}</p>
         ${jsonViewer(state.skill, 'View Skill JSON')}
       </div>
     `;
@@ -863,10 +873,6 @@ function showResults() {
 
   // Refresh health stats
   checkHealth();
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ---- Reset ----

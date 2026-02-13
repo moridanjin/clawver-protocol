@@ -137,21 +137,12 @@ export async function executeRoutes(app: FastifyInstance) {
       completed_at: completedAt,
     }).eq('id', executionId);
 
-    await db.from('skills').update({
-      execution_count: skill.execution_count + 1,
-      updated_at: new Date().toISOString(),
-    }).eq('id', skillId);
-
-    await db.from('agents').update({
-      skills_executed: caller.skills_executed + 1,
-    }).eq('id', callerId);
+    // Atomic counter increments (no read-then-write race conditions)
+    await db.rpc('increment_execution_count', { p_skill_id: skillId });
+    await db.rpc('increment_skills_executed', { p_agent_id: callerId });
 
     if (outputValidation.valid) {
-      const { data: ownerAgent } = await db.from('agents')
-        .select('reputation').eq('id', skill.owner_id).single();
-      await db.from('agents').update({
-        reputation: (ownerAgent?.reputation || 0) + 1,
-      }).eq('id', skill.owner_id);
+      await db.rpc('increment_reputation', { agent_id: skill.owner_id, amount: 1 });
     }
 
     // Add PAYMENT-RESPONSE header if x402 was used

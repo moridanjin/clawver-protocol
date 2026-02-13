@@ -10,6 +10,14 @@ export async function agentRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'name is required' });
     }
 
+    // Input length validation
+    if (typeof name !== 'string' || name.length > 100) {
+      return reply.status(400).send({ error: 'name must be a string of at most 100 characters' });
+    }
+    if (description && (typeof description !== 'string' || description.length > 1000)) {
+      return reply.status(400).send({ error: 'description must be at most 1000 characters' });
+    }
+
     const db = getDb();
 
     // Check duplicate wallet
@@ -59,10 +67,14 @@ export async function agentRoutes(app: FastifyInstance) {
     const db = getDb();
     const { limit = '20', offset = '0' } = request.query as any;
 
+    // Clamp limit/offset
+    const clampedLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const clampedOffset = Math.max(Number(offset) || 0, 0);
+
     const { data, error } = await db.from('agents')
       .select('*')
       .order('reputation', { ascending: false })
-      .range(Number(offset), Number(offset) + Number(limit) - 1);
+      .range(clampedOffset, clampedOffset + clampedLimit - 1);
 
     const agents = (data || []).map(formatAgent);
     return { agents, count: agents.length };

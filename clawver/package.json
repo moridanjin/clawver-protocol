@@ -20,6 +20,7 @@
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@fastify/rate-limit": "^10.3.0",
     "@remotion/cli": "4.0.421",
     "@remotion/google-fonts": "4.0.421",
     "@remotion/studio": "4.0.421",
@@ -37,7 +38,7 @@
   "devDependencies": {
     "@types/bs58": "^4.0.4",
     "@types/node": "^22.12.0",
-    "@types/react": "^19.2.14",
+    "@types/react": "19.2.14",
     "@types/uuid": "^10.0.0",
     "@vercel/node": "^5.6.2",
     "tsx": "^4.19.2",

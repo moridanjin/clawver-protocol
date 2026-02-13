@@ -173,16 +173,9 @@ export async function contractRoutes(app: FastifyInstance) {
       updated_at: completedAt,
     }).eq('id', id);
 
-    // Update reputation
-    const { data: providerAgent } = await db.from('agents')
-      .select('reputation').eq('id', contract.provider_id).single();
-    await db.from('agents').update({
-      reputation: (providerAgent?.reputation || 0) + 1,
-    }).eq('id', contract.provider_id);
-
-    await db.from('skills').update({
-      execution_count: skill.execution_count + 1, updated_at: new Date().toISOString(),
-    }).eq('id', contract.skill_id);
+    // Atomic counter increments
+    await db.rpc('increment_reputation', { agent_id: contract.provider_id, amount: 1 });
+    await db.rpc('increment_execution_count', { p_skill_id: contract.skill_id });
 
     return {
       contractId: id, status: 'settled', output: result.output,
@@ -319,15 +312,34 @@ export async function contractRoutes(app: FastifyInstance) {
   });
 
   // List contracts
-  app.get('/contracts', async (request) => {
+  app.get('/contracts', async (request, reply) => {
     const db = getDb();
     const { agentId, status, limit = '20', offset = '0' } = request.query as any;
 
-    let query = db.from('contracts').select('*').order('created_at', { ascending: false })
-      .range(Number(offset), Number(offset) + Number(limit) - 1);
+    // Clamp limit/offset
+    const clampedLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+    const clampedOffset = Math.max(Number(offset) || 0, 0);
 
-    if (agentId) query = query.or(`client_id.eq.${agentId},provider_id.eq.${agentId}`);
-    if (status) query = query.eq('status', status);
+    let query = db.from('contracts').select('*').order('created_at', { ascending: false })
+      .range(clampedOffset, clampedOffset + clampedLimit - 1);
+
+    if (agentId) {
+      // Validate UUID format to prevent PostgREST filter injection
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(agentId)) {
+        return reply.status(400).send({ error: 'Invalid agentId format' });
+      }
+      query = query.or(`client_id.eq.${agentId},provider_id.eq.${agentId}`);
+    }
+
+    if (status) {
+      // Validate against known status values
+      const validStatuses = ['escrowed', 'settled', 'disputed', 'refunded'];
+      if (!validStatuses.includes(status)) {
+        return reply.status(400).send({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      }
+      query = query.eq('status', status);
+    }
 
     const { data } = await query;
     return { contracts: (data || []).map(formatContract), count: (data || []).length };

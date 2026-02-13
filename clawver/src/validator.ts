@@ -1,7 +1,5 @@
 import Ajv from 'ajv';
 
-const ajv = new Ajv({ allErrors: true, strict: false });
-
 export interface ValidationResult {
   valid: boolean;
   errors: string[] | null;
@@ -20,6 +18,9 @@ function validate(schema: object, data: unknown): ValidationResult {
   if (!schema || Object.keys(schema).length === 0) {
     return { valid: true, errors: null };
   }
+
+  // New AJV instance per call to prevent schema cache pollution
+  const ajv = new Ajv({ allErrors: true, strict: false });
 
   const isValid = ajv.validate(schema, data);
   if (isValid) {
