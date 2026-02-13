@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { getDb } from '../db';
+import { getServerPublicKey } from '../proof';
+import { isAnchorEnabled } from '../solana';
 
 export async function healthRoutes(app: FastifyInstance) {
   app.get('/health', async () => {
@@ -28,6 +30,11 @@ export async function healthRoutes(app: FastifyInstance) {
         'payment-settlement',
         'job-contracts',
       ],
+      proofSigning: {
+        enabled: !!getServerPublicKey(),
+        serverPublicKey: getServerPublicKey(),
+        anchorEnabled: isAnchorEnabled(),
+      },
       timestamp: new Date().toISOString(),
     };
   });

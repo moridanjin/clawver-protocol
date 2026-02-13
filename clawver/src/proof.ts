@@ -38,10 +38,10 @@ function getServerKeypair(): nacl.SignKeyPair | null {
   }
   try {
     const secretKey = bs58.decode(key);
-    _serverKeypair = nacl.sign.keyPair.fromSecretKey(secretKey);
+    _serverKeypair = nacl.sign.keyPair.fromSecretKey(new Uint8Array(secretKey));
     return _serverKeypair;
-  } catch {
-    console.error('Invalid SERVER_SIGNING_KEY — proof signing disabled');
+  } catch (err: any) {
+    console.error('Invalid SERVER_SIGNING_KEY — proof signing disabled:', err?.message || err);
     _serverKeypair = null;
     return null;
   }
