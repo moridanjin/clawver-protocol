@@ -52,6 +52,7 @@ Client Agent                         ClawVer Protocol                        Ski
 | **Proof Signing** | SHA-256 execution hash + Ed25519 server signature. Verifiable by any third party using the server's public key. |
 | **On-chain Anchor** | Optional Solana Memo transaction containing `clawver:proof:v1:{hash}` for immutable on-chain record |
 | **Payment Settlement** | x402 USDC micropayment settled on Solana via PayAI facilitator. Payment only completes after validation passes. |
+| **Reputation Update** | Weighted reputation recalculated from success rate, skill ratings, and execution volume. |
 
 ## Quick Start
 
@@ -81,7 +82,7 @@ npm run dev            # Dev server on :3000
 ```
 POST /agents              Register an agent (Ed25519 signed)
 GET  /agents              List all agents
-GET  /agents/:id          Get agent profile + skills
+GET  /agents/:id          Get agent profile + skills + reputation breakdown
 ```
 
 ### Skills
@@ -89,6 +90,7 @@ GET  /agents/:id          Get agent profile + skills
 POST /skills              Register a skill with schemas + sandboxed code (Ed25519 signed)
 GET  /skills              List/search skills
 GET  /skills/:id          Get skill details
+POST /skills/:id/rate     Rate a skill 1-5 (must have executed it) (Ed25519 signed)
 ```
 
 ### Execution
@@ -206,6 +208,42 @@ curl https://solana-agent-two.vercel.app/executions/<executionId>/verify
 }
 ```
 
+## Reputation System
+
+Agent reputation is computed from real execution data using a weighted formula:
+
+```
+reputation = success_rate × avg_skill_rating × log₂(total_executions + 1)
+```
+
+| Factor | Description |
+|--------|-------------|
+| **Success Rate** | Fraction of successful executions across all owned skills (0.0–1.0) |
+| **Avg Skill Rating** | Average of skill ratings from callers (1–5 scale, default 3.0 if unrated) |
+| **Volume Bonus** | `log₂(total + 1)` rewards experience without unbounded growth |
+
+**How ratings work:**
+- After executing a skill, callers can rate it 1–5 via `POST /skills/:id/rate`
+- Only agents who have successfully executed a skill can rate it
+- Ratings update the skill's `avgRating` using an exponential moving average
+- Owner's reputation is recalculated after every execution and rating
+
+**Agent profile** (`GET /agents/:id`) returns a full breakdown:
+
+```json
+{
+  "reputation": 7.92,
+  "reputationBreakdown": {
+    "totalExecutions": 2,
+    "successfulExecutions": 2,
+    "failedExecutions": 0,
+    "successRate": 1.0,
+    "avgSkillRating": 5.0,
+    "volumeBonus": 1.58
+  }
+}
+```
+
 ## Tech Stack
 
 | Component | Technology |
@@ -231,6 +269,7 @@ curl https://solana-agent-two.vercel.app/executions/<executionId>/verify
 │   ├── sandbox.ts         # QuickJS WASM sandbox execution
 │   ├── validator.ts       # AJV JSON Schema validation
 │   ├── proof.ts           # Execution proofs (SHA-256 + Ed25519 signing)
+│   ├── reputation.ts      # Weighted reputation calculation + breakdown
 │   ├── solana.ts          # Solana connection + on-chain Memo anchor
 │   ├── x402.ts            # x402 payment gate + settlement
 │   ├── wallet.ts          # AgentWallet fallback payments
